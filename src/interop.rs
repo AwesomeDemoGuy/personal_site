@@ -3,9 +3,11 @@
 //! All browser-side behavior for the profile photo lives in
 //! `public/js/interop.js`:
 //!   1. `make_draggable` — drag-to-move behavior for the profile photo.
-//!   2. `setup_text_flow` — uses the pretext layout library to reflow a
-//!      paragraph around the photo's current rectangle, so the text is
-//!      displaced as the photo is dragged (pretext use case #2).
+//!   2. `setup_all_text_flow` — uses the pretext layout library to reflow ALL
+//!      prose text on every page around the photo's circular shape, so the text
+//!      is displaced as the photo is dragged (pretext use case #2). It
+//!      auto-discovers text blocks under the main content region and re-scans
+//!      on client-side route changes.
 //!
 //! `interop.js` loads pretext itself via a dynamic `import('/js/pretext.js')`,
 //! so the (per-drag-frame) layout hot path stays in JS and never crosses the
@@ -26,10 +28,10 @@ mod bindings {
         #[wasm_bindgen(js_name = makeDraggable)]
         pub fn make_draggable(element: &web_sys::HtmlElement);
 
-        /// Flow the text content of `element` around the photo using pretext,
-        /// re-running on `photomove` and window resize.
-        #[wasm_bindgen(js_name = setupTextFlow)]
-        pub fn setup_text_flow(element: &web_sys::HtmlElement);
+        /// Flow all prose text on every page around the photo using pretext,
+        /// re-running on `photomove`, resize, and route changes. Call once.
+        #[wasm_bindgen(js_name = setupAllTextFlow)]
+        pub fn setup_all_text_flow();
     }
 }
 

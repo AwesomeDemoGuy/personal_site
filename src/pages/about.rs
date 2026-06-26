@@ -5,24 +5,11 @@ use leptos::prelude::*;
 /// now so the framework renders end-to-end.
 #[component]
 pub fn AboutPage() -> impl IntoView {
-    let intro_ref = NodeRef::<leptos::html::P>::new();
-
-    // After hydration, hand the intro paragraph to the pretext-driven text-flow
-    // layout so it reflows around the draggable photo. Browser-only.
-    #[cfg(feature = "hydrate")]
-    {
-        use leptos::wasm_bindgen::JsCast;
-        intro_ref.on_load(move |el| {
-            let element: web_sys::HtmlElement = el.unchecked_into();
-            crate::interop::setup_text_flow(&element);
-        });
-    }
-
     view! {
         <section class="page about">
             <h1>"About Me"</h1>
 
-            <p class="intro" node_ref=intro_ref>
+            <p class="intro">
                 // Placeholder bio — replaced with real copy later. Long enough
                 // that dragging the photo over it visibly displaces the text.
                 "Short introduction goes here. This paragraph is intentionally a \

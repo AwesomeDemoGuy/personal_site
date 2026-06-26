@@ -111,245 +111,297 @@ function resolveTypography(el) {
   return { font, lineHeight };
 }
 
-export function setupTextFlow(textEl) {
-  if (!textEl) return;
+// Elements whose text we flow around the photo. Prose/reading text only — we
+// deliberately skip interactive or structurally-laid-out elements (nav tabs,
+// links, tag pills) so replacing their content with positioned lines doesn't
+// break their behavior or layout.
+const FLOW_SELECTOR = "p, h1, h2, h3, h4, li, blockquote";
 
-  // Capture the source text once; subsequent reflows rebuild from this.
-  if (textEl.dataset.flowText === undefined) {
-    textEl.dataset.flowText = (textEl.textContent || "").trim();
+// Shared state across every flowed element on the page.
+const flow = {
+  pretext: null,
+  photoEl: null,
+  instances: [],
+  frame: 0,
+  scanFrame: 0,
+};
+
+// An element qualifies for flowing if it holds non-empty text and isn't a
+// container of other elements or an interactive control. We require it to have
+// no child *elements* (pure text) so we never clobber nested links/markup.
+function isFlowable(el) {
+  if (!el || el.dataset.flowInit === "1") return false;
+  // No element children (text-only). Allows whitespace/text nodes only.
+  if (el.children && el.children.length > 0) return false;
+  // Skip anything inside interactive/structured regions.
+  if (el.closest(".tabs, .links, .tech-tags, nav")) return false;
+  const text = (el.textContent || "").trim();
+  if (!text) return false;
+  return true;
+}
+
+// Build a flow instance bound to a single text element. Each instance owns its
+// own prepared text, line-node pool, and render cache, but reads the shared
+// photo geometry so all elements wrap around the same circle.
+function createInstance(el) {
+  const { prepareWithSegments, layoutNextLineRange, materializeLineRange } =
+    flow.pretext;
+
+  if (el.dataset.flowText === undefined) {
+    el.dataset.flowText = (el.textContent || "").trim();
   }
-  const source = textEl.dataset.flowText;
-  if (!source) return;
+  const source = el.dataset.flowText;
+  if (!source) return null;
+  el.dataset.flowInit = "1";
 
+  let { font, lineHeight } = resolveTypography(el);
+  let prepared = prepareWithSegments(source, font);
+
+  el.textContent = "";
+  el.style.position = "relative";
+  const pool = [];
+  let poolLineHeight = lineHeight;
+  let lastKey = "";
+
+  const acquireLine = (i) => {
+    let node = pool[i];
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "flow-line";
+      node.style.position = "absolute";
+      node.style.whiteSpace = "nowrap";
+      node.style.lineHeight = `${poolLineHeight}px`;
+      pool[i] = node;
+      el.appendChild(node);
+    }
+    return node;
+  };
+
+  const computeLayout = () => {
+    const colWidth = el.clientWidth;
+    if (colWidth <= 0) return null;
+
+    // Photo circle geometry relative to THIS element's box. The photo is a
+    // circle (border-radius: 50%), modeled as the circle inscribed in its box;
+    // text is excluded from the circular region (plus a uniform margin measured
+    // from the curve), not the square box, so lines tuck into the corners.
+    let cx = 0;
+    let cy = -Infinity;
+    let radius = 0;
+    if (flow.photoEl) {
+      const cr = el.getBoundingClientRect();
+      const pr = flow.photoEl.getBoundingClientRect();
+      cx = (pr.left + pr.right) / 2 - cr.left;
+      cy = (pr.top + pr.bottom) / 2 - cr.top;
+      radius = Math.min(pr.width, pr.height) / 2;
+    }
+
+    const key =
+      colWidth +
+      "|" +
+      Math.round(cx) +
+      "|" +
+      Math.round(cy) +
+      "|" +
+      Math.round(radius) +
+      "|" +
+      lineHeight;
+
+    const R = radius + PHOTO_MARGIN;
+    const SINGLE_FULL = [{ x: 0, w: colWidth }];
+
+    // The horizontal segment(s) available on the band whose top is at `y`. When
+    // the circle overlaps the band, returns BOTH the left and right gaps so
+    // text wraps around both sides; the excluded span is the circle's width at
+    // the band row nearest its center. Segments are clamped to [0, colWidth].
+    const segmentsForY = (y) => {
+      const bandBottom = y + lineHeight;
+      let dy;
+      if (cy < y) dy = y - cy;
+      else if (cy > bandBottom) dy = cy - bandBottom;
+      else dy = 0;
+
+      if (radius <= 0 || dy >= R) return SINGLE_FULL;
+
+      const halfWidth = Math.sqrt(R * R - dy * dy);
+      const excludeLeft = cx - halfWidth;
+      const excludeRight = cx + halfWidth;
+
+      if (excludeRight <= 0 || excludeLeft >= colWidth) return SINGLE_FULL;
+
+      const segs = [];
+      const leftEnd = excludeLeft < colWidth ? excludeLeft : colWidth;
+      if (leftEnd >= MIN_LINE_WIDTH) segs.push({ x: 0, w: leftEnd });
+      const rightStart = excludeRight > 0 ? excludeRight : 0;
+      const rightGap = colWidth - rightStart;
+      if (rightGap >= MIN_LINE_WIDTH) segs.push({ x: rightStart, w: rightGap });
+      if (segs.length === 0) return SINGLE_FULL;
+      return segs;
+    };
+
+    // Walk bands top-to-bottom, filling each available segment with consecutive
+    // text. pretext does all the actual line breaking and measurement.
+    const lines = [];
+    let cursor = { segmentIndex: 0, graphemeIndex: 0 };
+    let y = 0;
+    let exhausted = false;
+    for (let i = 0; i < 2000 && !exhausted; i++) {
+      const segs = segmentsForY(y);
+      for (let s = 0; s < segs.length; s++) {
+        const seg = segs[s];
+        const range = layoutNextLineRange(prepared, cursor, seg.w < 1 ? 1 : seg.w);
+        if (range === null) {
+          exhausted = true;
+          break;
+        }
+        const line = materializeLineRange(prepared, range);
+        lines.push({ text: line.text, x: seg.x, y });
+        cursor = range.end;
+      }
+      y += lineHeight;
+    }
+
+    // Height is driven by the TEXT only, not the photo, so the photo floats
+    // freely and never stretches the element it overlaps.
+    const totalHeight = Math.max(y, lineHeight);
+    return { lines, totalHeight, key };
+  };
+
+  const render = (layout) => {
+    if (layout.key === lastKey) return;
+    lastKey = layout.key;
+
+    const { lines, totalHeight } = layout;
+    el.style.height = `${totalHeight}px`;
+
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      const node = acquireLine(i);
+      if (node.style.display === "none") node.style.display = "";
+      const top = `${ln.y}px`;
+      const left = `${ln.x}px`;
+      if (node.style.top !== top) node.style.top = top;
+      if (node.style.left !== left) node.style.left = left;
+      if (node.textContent !== ln.text) node.textContent = ln.text;
+    }
+    for (let i = lines.length; i < pool.length; i++) {
+      if (pool[i] && pool[i].style.display !== "none") {
+        pool[i].style.display = "none";
+      }
+    }
+  };
+
+  return {
+    el,
+    isConnected: () => el.isConnected,
+    relayout() {
+      const layout = computeLayout();
+      if (layout) render(layout);
+    },
+    refreshTypography() {
+      const t = resolveTypography(el);
+      if (t.font !== font) {
+        font = t.font;
+        prepared = prepareWithSegments(source, font);
+      }
+      if (t.lineHeight !== lineHeight) {
+        lineHeight = t.lineHeight;
+        poolLineHeight = lineHeight;
+        for (let i = 0; i < pool.length; i++) {
+          if (pool[i]) pool[i].style.lineHeight = `${lineHeight}px`;
+        }
+      }
+      lastKey = "";
+    },
+  };
+}
+
+// Reflow every instance, coalesced to one animation frame.
+function scheduleAll() {
+  if (flow.frame) return;
+  flow.frame = requestAnimationFrame(() => {
+    flow.frame = 0;
+    for (let i = 0; i < flow.instances.length; i++) {
+      flow.instances[i].relayout();
+    }
+  });
+}
+
+// Discover new flowable elements under `root` and drop instances whose elements
+// have left the DOM (e.g. after a client-side route change). Idempotent.
+function scan(root) {
+  let added = 0;
+  root.querySelectorAll(FLOW_SELECTOR).forEach((el) => {
+    if (!isFlowable(el)) return;
+    const inst = createInstance(el);
+    if (inst) {
+      flow.instances.push(inst);
+      added += 1;
+    }
+  });
+  flow.instances = flow.instances.filter((i) => i.isConnected());
+  if (added > 0) scheduleAll();
+}
+
+function scheduleScan(root) {
+  if (flow.scanFrame) return;
+  flow.scanFrame = requestAnimationFrame(() => {
+    flow.scanFrame = 0;
+    scan(root);
+  });
+}
+
+// Entry point: flow all prose text under the main content region around the
+// photo, and keep doing so as pages change (SPA navigation) and on resize.
+export function setupAllTextFlow() {
   loadPretext()
     .then((pretext) => {
-      const { prepareWithSegments, layoutNextLineRange, materializeLineRange } =
-        pretext;
+      flow.pretext = pretext;
+      flow.photoEl = document.querySelector(".profile-photo");
+      const root = document.querySelector("main.content") || document.body;
 
-      let { font, lineHeight } = resolveTypography(textEl);
-      // pretext's one-time analysis/measurement pass. Done once here (and again
-      // only when the font changes on resize); the per-frame hot path below is
-      // pure arithmetic over these cached segment widths.
-      let prepared = prepareWithSegments(source, font);
+      scan(root);
 
-      // Cache the photo element instead of re-querying every frame.
-      let photoEl = document.querySelector(".profile-photo");
+      document.addEventListener(PHOTO_MOVE_EVENT, scheduleAll);
 
-      // Set up the container once and keep a reusable pool of line elements, so
-      // a reflow updates existing nodes in place rather than tearing down and
-      // rebuilding the whole subtree each frame.
-      textEl.textContent = "";
-      textEl.style.position = "relative";
-      const pool = [];
-      let poolLineHeight = lineHeight;
-
-      const acquireLine = (i) => {
-        let el = pool[i];
-        if (!el) {
-          el = document.createElement("div");
-          el.className = "flow-line";
-          el.style.position = "absolute";
-          el.style.whiteSpace = "nowrap";
-          el.style.lineHeight = `${poolLineHeight}px`;
-          pool[i] = el;
-          textEl.appendChild(el);
-        }
-        return el;
-      };
-
-      // Compute the wrapped lines for the current geometry. Returns the line
-      // list, total height, and a signature used to skip redundant renders.
-      const computeLayout = () => {
-        const colWidth = textEl.clientWidth;
-        if (colWidth <= 0) return null;
-
-        // Photo circle geometry relative to the text container. The photo is a
-        // circle (border-radius: 50%), modeled as the circle inscribed in its
-        // box; text is excluded from the circular region (plus a uniform margin
-        // measured from the curve), not the square box, so lines tuck into the
-        // corners the circle leaves empty.
-        let cx = 0;
-        let cy = -Infinity;
-        let radius = 0;
-        if (photoEl) {
-          const cr = textEl.getBoundingClientRect();
-          const pr = photoEl.getBoundingClientRect();
-          cx = (pr.left + pr.right) / 2 - cr.left;
-          cy = (pr.top + pr.bottom) / 2 - cr.top;
-          radius = Math.min(pr.width, pr.height) / 2;
-        }
-
-        // Signature of the inputs that affect layout. If unchanged since the
-        // last render, we can skip the whole pretext pass + DOM writes.
-        const key =
-          colWidth +
-          "|" +
-          Math.round(cx) +
-          "|" +
-          Math.round(cy) +
-          "|" +
-          Math.round(radius) +
-          "|" +
-          lineHeight;
-
-        const R = radius + PHOTO_MARGIN;
-        const SINGLE_FULL = [{ x: 0, w: colWidth }];
-
-        // The horizontal segment(s) available on the band whose top is at `y`.
-        // When the circle overlaps the band, returns BOTH the left and right
-        // gaps (reading order) so text wraps around both sides; the excluded
-        // span is the circle's width at the band row nearest its center.
-        const segmentsForY = (y) => {
-          const bandBottom = y + lineHeight;
-          let dy;
-          if (cy < y) dy = y - cy;
-          else if (cy > bandBottom) dy = cy - bandBottom;
-          else dy = 0;
-
-          if (radius <= 0 || dy >= R) return SINGLE_FULL;
-
-          const halfWidth = Math.sqrt(R * R - dy * dy);
-          const excludeLeft = cx - halfWidth;
-          const excludeRight = cx + halfWidth;
-
-          // If the excluded circle span doesn't intersect the text column at
-          // all (photo dragged off to one side), use the full width.
-          if (excludeRight <= 0 || excludeLeft >= colWidth) return SINGLE_FULL;
-
-          const segs = [];
-          // Left gap: column start -> circle's left edge, clamped to the column
-          // so a photo sitting partly/fully outside never pushes text past the
-          // left border.
-          const leftEnd = excludeLeft < colWidth ? excludeLeft : colWidth;
-          if (leftEnd >= MIN_LINE_WIDTH) segs.push({ x: 0, w: leftEnd });
-          // Right gap: circle's right edge -> column end, clamped to the column
-          // so text never starts left of 0 or runs past the right border.
-          const rightStart = excludeRight > 0 ? excludeRight : 0;
-          const rightGap = colWidth - rightStart;
-          if (rightGap >= MIN_LINE_WIDTH)
-            segs.push({ x: rightStart, w: rightGap });
-          if (segs.length === 0) return SINGLE_FULL;
-          return segs;
-        };
-
-        // Walk bands top-to-bottom, filling each available segment with
-        // consecutive text. pretext does all the actual line breaking and
-        // measurement (layoutNextLineRange / materializeLineRange).
-        const lines = [];
-        let cursor = { segmentIndex: 0, graphemeIndex: 0 };
-        let y = 0;
-        let exhausted = false;
-        for (let i = 0; i < 2000 && !exhausted; i++) {
-          const segs = segmentsForY(y);
-          for (let s = 0; s < segs.length; s++) {
-            const seg = segs[s];
-            const range = layoutNextLineRange(
-              prepared,
-              cursor,
-              seg.w < 1 ? 1 : seg.w,
-            );
-            if (range === null) {
-              exhausted = true;
-              break;
-            }
-            const line = materializeLineRange(prepared, range);
-            lines.push({ text: line.text, x: seg.x, y });
-            cursor = range.end;
-          }
-          y += lineHeight;
-        }
-
-        // Height is driven by the TEXT only (where the last line ends), not by
-        // the photo's position. The photo floats independently (it can be
-        // dragged anywhere on the page), so tying the section height to it
-        // would stretch the About section and prevent the photo from moving
-        // below it.
-        const totalHeight = Math.max(y, lineHeight);
-        return { lines, totalHeight, key };
-      };
-
-      let lastKey = "";
-      const render = (layout) => {
-        if (layout.key === lastKey) return; // geometry unchanged: nothing to do
-        lastKey = layout.key;
-
-        const { lines, totalHeight } = layout;
-        textEl.style.height = `${totalHeight}px`;
-
-        // Update/reuse pooled line nodes in place.
-        for (let i = 0; i < lines.length; i++) {
-          const ln = lines[i];
-          const el = acquireLine(i);
-          if (el.style.display === "none") el.style.display = "";
-          // Only touch the DOM when the value actually changed.
-          const top = `${ln.y}px`;
-          const left = `${ln.x}px`;
-          if (el.style.top !== top) el.style.top = top;
-          if (el.style.left !== left) el.style.left = left;
-          if (el.textContent !== ln.text) el.textContent = ln.text;
-        }
-        // Hide any surplus nodes from a previous (longer) layout.
-        for (let i = lines.length; i < pool.length; i++) {
-          if (pool[i] && pool[i].style.display !== "none") {
-            pool[i].style.display = "none";
-          }
-        }
-      };
-
-      // rAF-coalesced scheduling: many pointermove/photomove events within a
-      // single frame collapse into one layout+render pass.
-      let frame = 0;
-      const schedule = () => {
-        if (frame) return;
-        frame = requestAnimationFrame(() => {
-          frame = 0;
-          const layout = computeLayout();
-          if (layout) render(layout);
-        });
-      };
-
-      // On resize the font/width context can change, so re-resolve typography
-      // and re-run pretext's prepare pass before scheduling a render.
       let resizeQueued = false;
-      const onResize = () => {
+      window.addEventListener("resize", () => {
         if (resizeQueued) return;
         resizeQueued = true;
         requestAnimationFrame(() => {
           resizeQueued = false;
-          const t = resolveTypography(textEl);
-          if (t.font !== font) {
-            font = t.font;
-            prepared = prepareWithSegments(source, font);
+          for (let i = 0; i < flow.instances.length; i++) {
+            flow.instances[i].refreshTypography();
           }
-          if (t.lineHeight !== lineHeight) {
-            lineHeight = t.lineHeight;
-            poolLineHeight = lineHeight;
-            for (let i = 0; i < pool.length; i++) {
-              if (pool[i]) pool[i].style.lineHeight = `${lineHeight}px`;
-            }
-          }
-          lastKey = ""; // force a rebuild
-          schedule();
+          scheduleAll();
         });
-      };
+      });
 
-      // Re-acquire the photo element if it wasn't present at setup time.
-      if (!photoEl) photoEl = document.querySelector(".profile-photo");
+      // Re-scan when the router swaps page content in/out. Our own line-node
+      // writes also trigger this, but scan is idempotent (already-init elements
+      // and generated .flow-line divs are ignored), so it settles immediately.
+      const mo = new MutationObserver((muts) => {
+        for (let i = 0; i < muts.length; i++) {
+          if (muts[i].addedNodes.length || muts[i].removedNodes.length) {
+            scheduleScan(root);
+            break;
+          }
+        }
+      });
+      mo.observe(root, { childList: true, subtree: true });
 
-      document.addEventListener(PHOTO_MOVE_EVENT, schedule);
-      window.addEventListener("resize", onResize);
-
-      // Run after fonts settle so measurements match rendered glyphs.
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(() => {
-          lastKey = "";
-          schedule();
+          for (let i = 0; i < flow.instances.length; i++) {
+            flow.instances[i].refreshTypography();
+          }
+          scheduleAll();
         });
       }
-      schedule();
+
+      scheduleAll();
     })
     .catch((err) => {
-      // If pretext fails to load, leave the plain text in place.
       console.error("text flow setup failed:", err);
     });
 }
