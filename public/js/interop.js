@@ -117,6 +117,11 @@ function resolveTypography(el) {
 // break their behavior or layout.
 const FLOW_SELECTOR = "p, h1, h2, h3, h4, li, blockquote";
 
+// Containers whose direct element children are atomic "chips" (link buttons,
+// tech tags) that should flow around the photo as indivisible units — each chip
+// stays whole and is never split apart.
+const CHIP_CONTAINER_SELECTOR = ".links, .tech-tags";
+
 // Shared state across every flowed element on the page.
 const flow = {
   pretext: null,
@@ -125,6 +130,64 @@ const flow = {
   frame: 0,
   scanFrame: 0,
 };
+
+// The photo's circle (border-radius: 50%) expressed relative to `el`'s box:
+// center (cx, cy) and radius (inscribed in the photo's bounding box).
+function photoCircleRelTo(el) {
+  let cx = 0;
+  let cy = -Infinity;
+  let radius = 0;
+  if (flow.photoEl) {
+    const cr = el.getBoundingClientRect();
+    const pr = flow.photoEl.getBoundingClientRect();
+    cx = (pr.left + pr.right) / 2 - cr.left;
+    cy = (pr.top + pr.bottom) / 2 - cr.top;
+    radius = Math.min(pr.width, pr.height) / 2;
+  }
+  return { cx, cy, radius };
+}
+
+// Build a function that, for a band whose top is at `y` and which is
+// `bandHeight` tall, returns the horizontal segment(s) available for content
+// (left gap, then right gap, in reading order) after excluding the photo's
+// circular region plus PHOTO_MARGIN. Segments narrower than `minGap` are
+// dropped; segments are clamped to [0, colWidth]. When the circle doesn't
+// overlap the band, returns a single full-width segment.
+function buildSegmentsFn(colWidth, circle, bandHeight, minGap) {
+  const { cx, cy, radius } = circle;
+  const R = radius + PHOTO_MARGIN;
+  const SINGLE_FULL = [{ x: 0, w: colWidth }];
+  return (y) => {
+    const bandBottom = y + bandHeight;
+    let dy;
+    if (cy < y) dy = y - cy;
+    else if (cy > bandBottom) dy = cy - bandBottom;
+    else dy = 0;
+
+    if (radius <= 0 || dy >= R) return SINGLE_FULL;
+
+    const halfWidth = Math.sqrt(R * R - dy * dy);
+    const excludeLeft = cx - halfWidth;
+    const excludeRight = cx + halfWidth;
+    if (excludeRight <= 0 || excludeLeft >= colWidth) return SINGLE_FULL;
+
+    const segs = [];
+    const leftEnd = excludeLeft < colWidth ? excludeLeft : colWidth;
+    if (leftEnd >= minGap) segs.push({ x: 0, w: leftEnd });
+    const rightStart = excludeRight > 0 ? excludeRight : 0;
+    const rightGap = colWidth - rightStart;
+    if (rightGap >= minGap) segs.push({ x: rightStart, w: rightGap });
+    if (segs.length === 0) return SINGLE_FULL;
+    return segs;
+  };
+}
+
+// A full-width single segment, used as the no-overlap fallback signature too.
+function isFullWidthRow(segs, colWidth) {
+  return (
+    segs.length === 1 && segs[0].x === 0 && segs[0].w >= colWidth - 0.5
+  );
+}
 
 // An element qualifies for flowing if it holds non-empty text and isn't a
 // container of other elements or an interactive control. We require it to have
@@ -144,8 +207,12 @@ function isFlowable(el) {
 // own prepared text, line-node pool, and render cache, but reads the shared
 // photo geometry so all elements wrap around the same circle.
 function createInstance(el) {
-  const { prepareWithSegments, layoutNextLineRange, materializeLineRange } =
-    flow.pretext;
+  const {
+    prepareWithSegments,
+    layoutNextLineRange,
+    materializeLineRange,
+    measureNaturalWidth,
+  } = flow.pretext;
 
   if (el.dataset.flowText === undefined) {
     el.dataset.flowText = (el.textContent || "").trim();
@@ -156,6 +223,19 @@ function createInstance(el) {
 
   let { font, lineHeight } = resolveTypography(el);
   let prepared = prepareWithSegments(source, font);
+  // Widest single word, used to gate side-gaps so pretext never has to break a
+  // word mid-grapheme to fit. NOTE: measureNaturalWidth on the normal prepared
+  // text returns the widest *forced line* — with no hard breaks that's the whole
+  // paragraph, which is not what we want. So we measure a variant where every
+  // space is a hard break (pre-wrap), making each word its own forced line;
+  // then measureNaturalWidth returns the longest word's width.
+  const widestWord = (f) =>
+    measureNaturalWidth(
+      prepareWithSegments(source.replace(/\s+/g, "\n"), f, {
+        whiteSpace: "pre-wrap",
+      }),
+    );
+  let minWordWidth = widestWord(font);
 
   el.textContent = "";
   el.style.position = "relative";
@@ -185,59 +265,25 @@ function createInstance(el) {
     // circle (border-radius: 50%), modeled as the circle inscribed in its box;
     // text is excluded from the circular region (plus a uniform margin measured
     // from the curve), not the square box, so lines tuck into the corners.
-    let cx = 0;
-    let cy = -Infinity;
-    let radius = 0;
-    if (flow.photoEl) {
-      const cr = el.getBoundingClientRect();
-      const pr = flow.photoEl.getBoundingClientRect();
-      cx = (pr.left + pr.right) / 2 - cr.left;
-      cy = (pr.top + pr.bottom) / 2 - cr.top;
-      radius = Math.min(pr.width, pr.height) / 2;
-    }
+    const circle = photoCircleRelTo(el);
 
     const key =
       colWidth +
       "|" +
-      Math.round(cx) +
+      Math.round(circle.cx) +
       "|" +
-      Math.round(cy) +
+      Math.round(circle.cy) +
       "|" +
-      Math.round(radius) +
+      Math.round(circle.radius) +
       "|" +
       lineHeight;
 
-    const R = radius + PHOTO_MARGIN;
-    const SINGLE_FULL = [{ x: 0, w: colWidth }];
-
-    // The horizontal segment(s) available on the band whose top is at `y`. When
-    // the circle overlaps the band, returns BOTH the left and right gaps so
-    // text wraps around both sides; the excluded span is the circle's width at
-    // the band row nearest its center. Segments are clamped to [0, colWidth].
-    const segmentsForY = (y) => {
-      const bandBottom = y + lineHeight;
-      let dy;
-      if (cy < y) dy = y - cy;
-      else if (cy > bandBottom) dy = cy - bandBottom;
-      else dy = 0;
-
-      if (radius <= 0 || dy >= R) return SINGLE_FULL;
-
-      const halfWidth = Math.sqrt(R * R - dy * dy);
-      const excludeLeft = cx - halfWidth;
-      const excludeRight = cx + halfWidth;
-
-      if (excludeRight <= 0 || excludeLeft >= colWidth) return SINGLE_FULL;
-
-      const segs = [];
-      const leftEnd = excludeLeft < colWidth ? excludeLeft : colWidth;
-      if (leftEnd >= MIN_LINE_WIDTH) segs.push({ x: 0, w: leftEnd });
-      const rightStart = excludeRight > 0 ? excludeRight : 0;
-      const rightGap = colWidth - rightStart;
-      if (rightGap >= MIN_LINE_WIDTH) segs.push({ x: rightStart, w: rightGap });
-      if (segs.length === 0) return SINGLE_FULL;
-      return segs;
-    };
+    // A usable side-gap must fit the widest whole word; otherwise pretext would
+    // have to break that word mid-grapheme to fill the gap. We skip gaps
+    // narrower than this so words always wrap whole. (Still keep a small floor
+    // so we don't try to use slivers when the longest word is tiny.)
+    const minGap = Math.max(MIN_LINE_WIDTH, Math.ceil(minWordWidth));
+    const segmentsForY = buildSegmentsFn(colWidth, circle, lineHeight, minGap);
 
     // Walk bands top-to-bottom, filling each available segment with consecutive
     // text. pretext does all the actual line breaking and measurement.
@@ -303,6 +349,7 @@ function createInstance(el) {
       if (t.font !== font) {
         font = t.font;
         prepared = prepareWithSegments(source, font);
+        minWordWidth = widestWord(font);
       }
       if (t.lineHeight !== lineHeight) {
         lineHeight = t.lineHeight;
@@ -310,6 +357,110 @@ function createInstance(el) {
         for (let i = 0; i < pool.length; i++) {
           if (pool[i]) pool[i].style.lineHeight = `${lineHeight}px`;
         }
+      }
+      lastKey = "";
+    },
+  };
+}
+
+// Build a flow instance for a container of atomic chips (link buttons, tech
+// tags). Each chip is an existing DOM element kept intact; we only absolutely
+// position it. Chips are packed left-to-right into the circular gaps, wrapping
+// to the next band when the current segment can't fit the next whole chip — so
+// each chip flows around the photo as a single indivisible unit.
+function createChipInstance(container) {
+  if (container.dataset.flowInit === "1") return null;
+  const chips = Array.from(container.children);
+  if (chips.length === 0) return null;
+  container.dataset.flowInit = "1";
+
+  // Read the gap the CSS used between chips, and prepare the container to host
+  // absolutely-positioned children without collapsing.
+  const csClient = getComputedStyle(container);
+  const gap = parseFloat(csClient.gap) || parseFloat(csClient.columnGap) || 10;
+  container.style.position = "relative";
+
+  // Cache each chip's natural (unwrapped) size once. Chips are inline-block so
+  // their box size is intrinsic and stable.
+  const sizes = chips.map((c) => {
+    c.style.position = "absolute";
+    c.style.top = "0px";
+    c.style.left = "0px";
+    const r = c.getBoundingClientRect();
+    return { w: r.width, h: r.height };
+  });
+  const rowHeight = Math.max(...sizes.map((s) => s.h), 1);
+  const widestChip = Math.max(...sizes.map((s) => s.w), 1);
+
+  let lastKey = "";
+
+  const relayout = () => {
+    const colWidth = container.clientWidth;
+    if (colWidth <= 0) return;
+
+    const circle = photoCircleRelTo(container);
+    const key =
+      colWidth +
+      "|" +
+      Math.round(circle.cx) +
+      "|" +
+      Math.round(circle.cy) +
+      "|" +
+      Math.round(circle.radius) +
+      "|" +
+      Math.round(rowHeight);
+    if (key === lastKey) return;
+    lastKey = key;
+
+    // A usable segment must fit at least the widest chip, else chips can't be
+    // placed there without overflowing — skip such slivers.
+    const minGap = Math.max(MIN_LINE_WIDTH, Math.ceil(widestChip));
+    const segmentsForY = buildSegmentsFn(colWidth, circle, rowHeight, minGap);
+
+    let i = 0; // next chip to place
+    let y = 0;
+    let guard = 0;
+    while (i < chips.length && guard++ < 2000) {
+      const segs = segmentsForY(y);
+      for (let s = 0; s < segs.length && i < chips.length; s++) {
+        const seg = segs[s];
+        // Pack as many whole chips as fit in this segment, left to right.
+        let penX = seg.x;
+        const segEnd = seg.x + seg.w;
+        while (i < chips.length) {
+          const cw = sizes[i].w;
+          // First chip in a segment always goes (segment already >= widestChip);
+          // subsequent chips need room for a preceding gap too.
+          const needed = penX === seg.x ? cw : gap + cw;
+          if (penX + needed > segEnd + 0.5) break;
+          const x = penX === seg.x ? penX : penX + gap;
+          const chip = chips[i];
+          const left = `${Math.round(x)}px`;
+          const top = `${Math.round(y)}px`;
+          if (chip.style.left !== left) chip.style.left = left;
+          if (chip.style.top !== top) chip.style.top = top;
+          if (chip.style.display === "none") chip.style.display = "";
+          penX = x + cw;
+          i += 1;
+        }
+      }
+      y += rowHeight + gap;
+    }
+
+    container.style.height = `${Math.max(y - gap, rowHeight)}px`;
+  };
+
+  return {
+    el: container,
+    isConnected: () => container.isConnected,
+    relayout,
+    refreshTypography() {
+      // Re-measure chip sizes (font/zoom may have changed) by momentarily
+      // clearing positioning influence is unnecessary: chips are absolutely
+      // positioned with intrinsic size, so getBoundingClientRect stays valid.
+      for (let k = 0; k < chips.length; k++) {
+        const r = chips[k].getBoundingClientRect();
+        sizes[k] = { w: r.width, h: r.height };
       }
       lastKey = "";
     },
@@ -331,9 +482,19 @@ function scheduleAll() {
 // have left the DOM (e.g. after a client-side route change). Idempotent.
 function scan(root) {
   let added = 0;
+  // Prose text elements.
   root.querySelectorAll(FLOW_SELECTOR).forEach((el) => {
     if (!isFlowable(el)) return;
     const inst = createInstance(el);
+    if (inst) {
+      flow.instances.push(inst);
+      added += 1;
+    }
+  });
+  // Chip containers (link buttons, tech tags): each chip flows whole.
+  root.querySelectorAll(CHIP_CONTAINER_SELECTOR).forEach((c) => {
+    if (c.dataset.flowInit === "1") return;
+    const inst = createChipInstance(c);
     if (inst) {
       flow.instances.push(inst);
       added += 1;
