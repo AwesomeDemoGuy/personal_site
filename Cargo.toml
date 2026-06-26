@@ -1,0 +1,104 @@
+[package]
+name = "personal_site"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+leptos = { version = "0.8" }
+leptos_router = { version = "0.8" }
+leptos_meta = { version = "0.8" }
+leptos_axum = { version = "0.8", optional = true }
+
+axum = { version = "0.8", features = ["macros"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+tower = { version = "0.5", optional = true }
+tower-http = { version = "0.7", features = ["fs", "set-header"], optional = true }
+
+# Server-side database (SQLite via SQLx)
+sqlx = { version = "0.9", features = [
+    "runtime-tokio",
+    "sqlite",
+    "macros",
+    "chrono",
+], optional = true }
+
+# Shared
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+# Client-side / hydration + JS interop
+# NOTE: cargo-leptos 0.3+ auto-detects the wasm-bindgen version from this
+# project's Cargo.lock and downloads the matching wasm-bindgen CLI, so the
+# crate and the bindgen tool always share the same schema. Keep js-sys and
+# web-sys in lockstep with wasm-bindgen (the matching js-sys/web-sys patch pins
+# the exact wasm-bindgen version), which Cargo resolves automatically.
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = ["HtmlElement", "Element"], optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[features]
+default = ["ssr"]
+hydrate = [
+    "leptos/hydrate",
+    "dep:console_error_panic_hook",
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+    "dep:web-sys",
+]
+ssr = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:tower",
+    "dep:tower-http",
+    "dep:leptos_axum",
+    "dep:sqlx",
+    "leptos/ssr",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+]
+
+# Size-optimized profile for the WASM bundle in release mode.
+# Tuned to keep peak build memory low (avoids OOM/qemu aborts in constrained
+# Docker VMs) while still producing a small bundle:
+#   * lto = "thin"      -> much lower peak memory than full/fat LTO
+#   * codegen-units = 16 -> parallel codegen, lower peak memory than 1
+# opt-level 'z' + thin LTO keeps the bundle close to fully-optimized size.
+[profile.wasm-release]
+inherits = "release"
+opt-level = 'z'
+lto = "thin"
+codegen-units = 16
+panic = "abort"
+
+[package.metadata.leptos]
+# The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle.
+output-name = "personal_site"
+# The site root folder is where cargo-leptos generates all output.
+# WARNING: all content of this folder will be erased on a rebuild.
+site-root = "target/site"
+# The site-root relative folder where all compiled output (JS, WASM and CSS) is written.
+site-pkg-dir = "pkg"
+# The source CSS file. If it ends with .sass or .scss it will be compiled by dart-sass.
+style-file = "style/main.scss"
+# Assets source dir. All files found here will be copied and synchronized to site-root.
+assets-dir = "public"
+# The IP and port where the server serves the content.
+site-addr = "0.0.0.0:31337"
+# The port to use for automatic reload monitoring.
+reload-port = 3001
+# The browserlist query used for optimizing the CSS.
+browserquery = "defaults"
+# The environment Leptos will run in, usually either "DEV" or "PROD".
+env = "DEV"
+# The features to use when compiling the bin target.
+bin-features = ["ssr"]
+bin-default-features = false
+# The features to use when compiling the lib target.
+lib-features = ["hydrate"]
+lib-default-features = false
+# The profile to use for the lib target when compiling for release.
+lib-profile-release = "wasm-release"

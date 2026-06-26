@@ -1,0 +1,20 @@
+# Docker Compose for the personal site.
+# Build: docker compose build
+# Run:   docker compose up
+
+services:
+  server:
+    build:
+      context: .
+      target: final
+    ports:
+      - "31337:31337"
+    environment:
+      # Persist the SQLite database on the named volume below.
+      DATABASE_URL: "sqlite:///data/personal_site.db"
+    volumes:
+      - db-data:/data
+    restart: unless-stopped
+
+volumes:
+  db-data:
