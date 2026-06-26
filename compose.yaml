@@ -12,9 +12,27 @@ services:
     environment:
       # Persist the SQLite database on the named volume below.
       DATABASE_URL: "sqlite:///data/personal_site.db"
+    # Load WEATHER_*_LAT/_LON (and any other vars) from the local .env at
+    # runtime. The file is NOT baked into the image (.dockerignore excludes it);
+    # compose injects it into the container's environment.
+    env_file:
+      - .env
     volumes:
       - db-data:/data
     restart: unless-stopped
+    networks:
+      - appnet
+
+networks:
+  # The host's default route is a VPN tunnel with an MTU below 1500, so the
+  # standard Docker bridge MTU (1500) causes full-size packets from the
+  # container to be silently dropped (MTU black-hole) — outbound HTTPS to some
+  # hosts hangs. Clamp the bridge MTU to fit inside the tunnel so server-side
+  # requests (e.g. the weather API) work. 1400 is a safe margin for WireGuard.
+  appnet:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"
 
 volumes:
   db-data:

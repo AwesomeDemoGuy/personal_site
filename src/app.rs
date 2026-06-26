@@ -82,10 +82,10 @@ fn Header() -> impl IntoView {
 
 #[component]
 fn Footer() -> impl IntoView {
-    let year = 2025;
+    let year = 2026;
     view! {
         <footer class="site-footer">
-            <span>{year}" \u{00B7} Built with Rust + Leptos"</span>
+            <span>"© "{year}" Sebastian Ashkar \u{00B7} Built with Rust + Leptos"</span>
         </footer>
     }
 }
@@ -94,9 +94,9 @@ fn Footer() -> impl IntoView {
 fn NotFound() -> impl IntoView {
     view! {
         <div class="not-found">
-            <h1>"404"</h1>
+            <h1>"Error 404"</h1>
             <p>"That page does not exist."</p>
-            <A href="/about" attr:class="tab">"Back to About"</A>
+            <A href="/about" attr:class="tab">"Back to About Page"</A>
         </div>
     }
 }

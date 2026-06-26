@@ -142,6 +142,26 @@ a {
   pointer-events: auto;
 }
 
+// Live weather widget. The resolved text span is flowed around the photo by
+// interop.js, so it must be a full-width block with room to wrap; the loading
+// placeholder stays inline.
+.weather-widget {
+  margin: 0.25rem 0;
+  color: $text-dim;
+  font-size: 0.95rem;
+
+  span:not(.weather-loading) {
+    display: block;
+    position: relative;
+    width: 100%;
+  }
+
+  .weather-loading {
+    color: $text-dim;
+    opacity: 0.7;
+  }
+}TypeScript
+
 .links {
   display: flex;
   gap: 1rem;
@@ -205,4 +225,11 @@ a {
 .not-found {
   text-align: center;
   padding: 4rem 0;
+}
+
+.location {
+  color: $text-dim;
+  font-size: 0.95rem;
+  margin: -0.5rem 0 1.25rem;
+  letter-spacing: 0.03em;
 }

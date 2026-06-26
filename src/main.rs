@@ -12,6 +12,10 @@ async fn main() {
     use tower_http::services::ServeDir;
     use tower_http::set_header::SetResponseHeaderLayer;
 
+    // Load environment variables from a local `.env` file if present. A missing
+    // file is fine (in Docker/prod the vars come from the real environment).
+    let _ = dotenvy::dotenv();
+
     // Initialize the SQLite database (creates the file and runs migrations).
     let pool = db::init_pool()
         .await

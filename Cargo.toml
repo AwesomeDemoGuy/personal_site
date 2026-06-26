@@ -1,6 +1,6 @@
 [package]
 name = "personal_site"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [lib]
@@ -17,6 +17,11 @@ tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tower = { version = "0.5", optional = true }
 tower-http = { version = "0.7", features = ["fs", "set-header"], optional = true }
 
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"], optional = true }
+
+# Loads variables from a .env file at startup (server-only, local dev).
+dotenvy = { version = "0.15", optional = true }
+
 # Server-side database (SQLite via SQLx)
 sqlx = { version = "0.9", features = [
     "runtime-tokio",
@@ -27,6 +32,7 @@ sqlx = { version = "0.9", features = [
 
 # Shared
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 # Client-side / hydration + JS interop
@@ -56,6 +62,8 @@ ssr = [
     "dep:tower-http",
     "dep:leptos_axum",
     "dep:sqlx",
+    "dep:reqwest",
+    "dep:dotenvy",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

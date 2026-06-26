@@ -65,6 +65,14 @@ async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             name     TEXT NOT NULL,
             category TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS weather_cache (
+            location    TEXT PRIMARY KEY,
+            temp_f      REAL NOT NULL,
+            description TEXT NOT NULL,
+            emoji       TEXT NOT NULL,
+            fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
         "#,
     )
     .execute(pool)

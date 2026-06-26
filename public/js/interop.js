@@ -114,8 +114,11 @@ function resolveTypography(el) {
 // Elements whose text we flow around the photo. Prose/reading text only — we
 // deliberately skip interactive or structurally-laid-out elements (nav tabs,
 // links, tag pills) so replacing their content with positioned lines doesn't
-// break their behavior or layout.
-const FLOW_SELECTOR = "p, h1, h2, h3, h4, li, blockquote";
+// break their behavior or layout. The weather widget's text span is included so
+// the live weather flows around the photo too; its content arrives async (via
+// Suspense), and the MutationObserver re-scan picks it up once resolved.
+const FLOW_SELECTOR =
+  "p, h1, h2, h3, h4, li, blockquote, .weather-widget span:not(.weather-loading)";
 
 // Containers whose direct element children are atomic "chips" (link buttons,
 // tech tags) that should flow around the photo as indivisible units — each chip
@@ -237,6 +240,13 @@ function createInstance(el) {
     );
   let minWordWidth = widestWord(font);
 
+  // Vertical padding (preserved by the box model). Lines are positioned
+  // absolutely, so we offset them by the top padding to sit where they would
+  // naturally, and reserve the bottom padding in the height.
+  const cs0 = getComputedStyle(el);
+  const padTop = parseFloat(cs0.paddingTop) || 0;
+  const padBottom = parseFloat(cs0.paddingBottom) || 0;
+
   el.textContent = "";
   el.style.position = "relative";
   const pool = [];
@@ -286,13 +296,15 @@ function createInstance(el) {
     const segmentsForY = buildSegmentsFn(colWidth, circle, lineHeight, minGap);
 
     // Walk bands top-to-bottom, filling each available segment with consecutive
-    // text. pretext does all the actual line breaking and measurement.
+    // text. Bands are sampled and rendered at the same on-screen y (offset by
+    // the element's top padding) so the photo-overlap geometry matches where
+    // the lines actually appear. pretext does all the line breaking/measurement.
     const lines = [];
     let cursor = { segmentIndex: 0, graphemeIndex: 0 };
     let y = 0;
     let exhausted = false;
     for (let i = 0; i < 2000 && !exhausted; i++) {
-      const segs = segmentsForY(y);
+      const segs = segmentsForY(y + padTop);
       for (let s = 0; s < segs.length; s++) {
         const seg = segs[s];
         const range = layoutNextLineRange(prepared, cursor, seg.w < 1 ? 1 : seg.w);
@@ -301,15 +313,22 @@ function createInstance(el) {
           break;
         }
         const line = materializeLineRange(prepared, range);
-        lines.push({ text: line.text, x: seg.x, y });
+        lines.push({ text: line.text, x: seg.x, y: y + padTop });
         cursor = range.end;
       }
       y += lineHeight;
     }
 
-    // Height is driven by the TEXT only, not the photo, so the photo floats
-    // freely and never stretches the element it overlaps.
-    const totalHeight = Math.max(y, lineHeight);
+    // Height from the lowest line actually placed (each line.y already includes
+    // padTop): content bottom = maxLineY + lineHeight, plus bottom padding.
+    // Using the placed lines (not the loop counter, which over-counts the empty
+    // band where exhaustion is detected) makes the height identical whether or
+    // not the photo overlaps — so padded items keep constant height/spacing.
+    let maxLineY = padTop;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].y > maxLineY) maxLineY = lines[i].y;
+    }
+    const totalHeight = maxLineY + lineHeight + padBottom;
     return { lines, totalHeight, key };
   };
 
