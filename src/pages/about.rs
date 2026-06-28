@@ -196,18 +196,19 @@ pub fn AboutPage() -> impl IntoView {
             <WeatherWidget location="CA"/>
             <WeatherWidget location="AZ"/>
 
+            <p href="mailto:sebastian11ryan@gmail.com">
+            "sebastian11ryan[at]gmail[dot]com"
+            </p>
+
             <p class="intro">
-                // Placeholder bio — replaced with real copy later. Long enough
-                // that dragging the photo over it visibly displaces the text.
-                "Short introduction goes here. This paragraph is intentionally a \
-                 few sentences long so that the pretext layout engine has real \
-                 text to flow around the profile photo. Try grabbing the photo \
-                 above and dragging it down across these lines: the text reflows \
-                 to make room for it, shifting to whichever side has space and \
-                 falling back to full width once the photo no longer overlaps a \
-                 given line. None of this touches the browser's own layout for \
-                 measurement — pretext computes the line breaks from cached glyph \
-                 widths, which keeps the reflow smooth while you drag."
+                "Hi! I'm Sebastian Ashkar, a senior computer science undergrad at \
+                Arizona State University. I have a particular interest in cyber \
+                security. test test test test test test test test test test test \
+                test test test test test test test test test test test test test \
+                test test test test test test test test test test test test test \
+                test test test test test test test test test test test test test \
+                test test test test test test test test test test test test test \
+                test test test test test test test test test test test test test."
             </p>
 
             <div class="links">
@@ -228,6 +229,9 @@ pub fn AboutPage() -> impl IntoView {
                 >
                     <img class="link-icon" src="/assets/GitHub.svg" alt=""/>
                     "GitHub"
+                </a>
+                <a class="ext-link" href="mailto:sebastian11ryan@gmail.com">
+                    "Email"
                 </a>
             </div>
 
@@ -292,7 +296,7 @@ fn CertificatesSection() -> impl IntoView {
 #[component]
 fn TechnologiesSection() -> impl IntoView {
     // Placeholder tags; will be sourced from the database later.
-    let placeholders = ["Python", "PostgreSQL", "Docker", "ROP", "IDA Pro"];
+    let placeholders = ["Python", "PostgreSQL", "Docker", "Return Oriented Programing", "IDA Pro", "c/c++", "Linux", "Cross Site Scripting", "SQL Injection", "x86 Assembly"];
 
     view! {
         <div class="section technologies">
