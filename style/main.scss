@@ -169,7 +169,9 @@ a {
 }
 
 .ext-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
   padding: 0.4rem 0.9rem;
   border: 1px solid $border;
   border-radius: 6px;
@@ -181,15 +183,52 @@ a {
   }
 }
 
+// Icon inside a link button (LinkedIn / GitHub).
+.link-icon {
+  width: 1.1em;
+  height: 1.1em;
+  object-fit: contain;
+  display: block;
+  flex: 0 0 auto;
+}
+
 .cert-list {
   list-style: none;
   padding: 0;
   margin: 0;
 
   .cert-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
     padding: 0.6rem 0;
     border-bottom: 1px solid $border;
     color: $text-dim;
+  }
+}
+
+// Icon shown next to a certificate (e.g. the yellow belt).
+.cert-icon {
+  width: 1.6rem;
+  height: 1.6rem;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+// A clickable certificate (icon + name) linking out to its source.
+.cert-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: $text-dim;
+
+  &:hover {
+    color: $text;
+    text-decoration: none;
+
+    .cert-name {
+      text-decoration: underline;
+    }
   }
 }
 

@@ -217,6 +217,7 @@ pub fn AboutPage() -> impl IntoView {
                     target="_blank"
                     rel="noopener noreferrer"
                 >
+                    <img class="link-icon" src="/assets/LinkedIn.png" alt=""/>
                     "LinkedIn"
                 </a>
                 <a
@@ -225,6 +226,7 @@ pub fn AboutPage() -> impl IntoView {
                     target="_blank"
                     rel="noopener noreferrer"
                 >
+                    <img class="link-icon" src="/assets/GitHub.svg" alt=""/>
                     "GitHub"
                 </a>
             </div>
@@ -237,8 +239,17 @@ pub fn AboutPage() -> impl IntoView {
 
 #[component]
 fn CertificatesSection() -> impl IntoView {
-    // Placeholder list; will be sourced from the database later.
-    let placeholders = ["Yellow Belt", "Certificate two", "Certificate three"];
+    // Placeholder list; will be sourced from the database later. Fields:
+    // (name, optional icon path, optional link URL).
+    let placeholders: [(&str, Option<&str>, Option<&str>); 3] = [
+        (
+            "Yellow Belt",
+            Some("/assets/yellow_belt.svg"),
+            Some("https://pwn.college/hacker/92956"),
+        ),
+        ("Certificate two", None, None),
+        ("Certificate three", None, None),
+    ];
 
     view! {
         <div class="section certificates">
@@ -246,7 +257,32 @@ fn CertificatesSection() -> impl IntoView {
             <ul class="cert-list">
                 {placeholders
                     .into_iter()
-                    .map(|c| view! { <li class="cert-item">{c}</li> })
+                    .map(|(name, icon, url)| {
+                        let icon_view = icon.map(|src| view! {
+                            <img class="cert-icon" src=src alt=""/>
+                        });
+                        view! {
+                            <li class="cert-item">
+                                {match url {
+                                    Some(href) => view! {
+                                        <a
+                                            class="cert-link"
+                                            href=href
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                        >
+                                            {icon_view}
+                                            <span class="cert-name">{name}</span>
+                                        </a>
+                                    }.into_any(),
+                                    None => view! {
+                                        {icon_view}
+                                        <span class="cert-name">{name}</span>
+                                    }.into_any(),
+                                }}
+                            </li>
+                        }
+                    })
                     .collect_view()}
             </ul>
         </div>
