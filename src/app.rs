@@ -6,7 +6,7 @@ use leptos_router::{
 };
 
 use crate::components::photo::DraggablePhoto;
-use crate::pages::{about::AboutPage, blog::BlogPage, projects::ProjectsPage};
+use crate::pages::{about::AboutPage, blog::BlogPage, gpg::GpgPage, projects::ProjectsPage};
 
 /// Shared application state passed to Axum and Leptos route handlers.
 ///
@@ -55,6 +55,7 @@ pub fn App() -> impl IntoView {
                     <Routes fallback=|| view! { <NotFound/> }>
                         <Route path=StaticSegment("") view=AboutPage/>
                         <Route path=StaticSegment("about") view=AboutPage/>
+                        <Route path=StaticSegment("gpg") view=GpgPage/>
                         <Route path=StaticSegment("blog") view=BlogPage/>
                         <Route path=StaticSegment("projects") view=ProjectsPage/>
                     </Routes>

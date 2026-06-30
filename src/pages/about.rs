@@ -191,13 +191,14 @@ fn WeatherWidget(#[prop(into)] location: String) -> impl IntoView {
 pub fn AboutPage() -> impl IntoView {
     view! {
         <section class="page about">
-            <h1>"About Me"</h1>
+            // <h1>"About Me"</h1>
 
             <WeatherWidget location="CA"/>
             <WeatherWidget location="AZ"/>
 
-            <p href="mailto:sebastian11ryan@gmail.com">
-            "sebastian11ryan[at]gmail[dot]com"
+            <p>
+                "sebastian11ryan[at]gmail[dot]com - "
+                <a href="/gpg">"GPG Key"</a>
             </p>
 
             <p class="intro">
@@ -230,9 +231,6 @@ pub fn AboutPage() -> impl IntoView {
                     <img class="link-icon" src="/assets/GitHub.svg" alt=""/>
                     "GitHub"
                 </a>
-                <a class="ext-link" href="mailto:sebastian11ryan@gmail.com">
-                    "Email"
-                </a>
             </div>
 
             <CertificatesSection/>
@@ -245,14 +243,12 @@ pub fn AboutPage() -> impl IntoView {
 fn CertificatesSection() -> impl IntoView {
     // Placeholder list; will be sourced from the database later. Fields:
     // (name, optional icon path, optional link URL).
-    let placeholders: [(&str, Option<&str>, Option<&str>); 3] = [
+    let placeholders: [(&str, Option<&str>, Option<&str>); 1] = [
         (
             "Yellow Belt",
             Some("/assets/yellow_belt.svg"),
             Some("https://pwn.college/hacker/92956"),
         ),
-        ("Certificate two", None, None),
-        ("Certificate three", None, None),
     ];
 
     view! {
