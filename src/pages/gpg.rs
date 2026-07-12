@@ -1,6 +1,9 @@
 use leptos::prelude::*;
 
-const PUBLIC_KEY: &str = r#"-----BEGIN PGP PUBLIC KEY BLOCK-----
+/// The ASCII-armored public key, served verbatim to non-browser clients (curl,
+/// wget, …) that request `/gpg` — see the content-negotiation middleware in
+/// `main.rs`. Browsers get the flowing HTML presentation below.
+pub const PUBLIC_KEY: &str = r#"-----BEGIN PGP PUBLIC KEY BLOCK-----
 
 mQINBGnJwPIBEADGf6vvpziOmqxzJ3HnjeMscHeRNmxWSGlZZxo91slOBgL1V3uX
 F4d9eKhjhewNMft04Xp0/qGodzaL8JLntmoBvC/4eB3/kz/NRKx3qyMxxkeOO6nT
@@ -55,10 +58,32 @@ p16hHT6ZbgKMfwGPfoyiM+Uh8ZNMUxM=
 
 #[component]
 pub fn GpgPage() -> impl IntoView {
+    // Browser presentation: the armor `-----BEGIN-----`/`-----END-----` lines
+    // and the CRC checksum line (leading '=') each stay on their own rows,
+    // separated from the flowing base64 body by a blank line, so it reads like a
+    // proper key block. The body itself is collapsed to a single newline-free
+    // line that the text-flow layout wraps around the photo. Non-browser clients
+    // (curl, wget) get the valid multi-line key via the middleware in main.rs.
+    let flowing_key = {
+        let lines: Vec<&str> = PUBLIC_KEY.lines().collect();
+        match lines.as_slice() {
+            [begin, middle @ .., end] => match middle.split_last() {
+                // Checksum present: body\n=checksum\n\nEND — the checksum sits
+                // directly under the body (one newline), with a blank line
+                // between it and the footer.
+                Some((checksum, body)) if checksum.starts_with('=') => {
+                    format!("{begin}\n\n{}\n{checksum}\n\n{end}", body.concat())
+                }
+                _ => format!("{begin}\n\n{}\n\n{end}", middle.concat()),
+            },
+            _ => PUBLIC_KEY.to_string(),
+        }
+    };
+
     view! {
         <section class="page gpg">
             <h1>"GPG Key"</h1>
-            <pre>{PUBLIC_KEY}</pre>
+            <pre>{flowing_key}</pre>
         </section>
     }
 }

@@ -117,13 +117,18 @@ function resolveTypography(el) {
 // break their behavior or layout. The weather widget's text span is included so
 // the live weather flows around the photo too; its content arrives async (via
 // Suspense), and the MutationObserver re-scan picks it up once resolved.
+// `.cert-name` is the certificate label text — it flows in words independently
+// of its icon sibling, which stays a plain, non-wrapping inline image.
+// `pre` is the PGP public key block on the GPG page — its body is a single
+// newline-free line, so it flows as one continuous chunk around the photo while
+// the `-----BEGIN-----`/`-----END-----` armor lines stay on their own rows.
 const FLOW_SELECTOR =
-  "p, h1, h2, h3, h4, li, blockquote, .weather-widget span:not(.weather-loading)";
+  "p, h1, h2, h3, h4, li, blockquote, .weather-widget span:not(.weather-loading), .cert-name, pre";
 
 // Containers whose direct element children are atomic "chips" (link buttons,
 // tech tags) that should flow around the photo as indivisible units — each chip
 // stays whole and is never split apart.
-const CHIP_CONTAINER_SELECTOR = ".links, .tech-tags";
+const CHIP_CONTAINER_SELECTOR = ".links, .tech-tags, .about-email";
 
 // Shared state across every flowed element on the page.
 const flow = {
@@ -224,8 +229,23 @@ function createInstance(el) {
   if (!source) return null;
   el.dataset.flowInit = "1";
 
+  // For prose we never split a word mid-grapheme (a side-gap must fit the widest
+  // whole word). But a `pre` block like the PGP key is data, not prose: its long
+  // base64 lines have no spaces, so treating them as unbreakable would force
+  // every row to full width and the text would never flow around the photo.
+  // Allow such blocks to break long lines at any grapheme so they wrap around
+  // the image in every direction.
+  const breakAnywhere = el.tagName === "PRE";
+
   let { font, lineHeight } = resolveTypography(el);
-  let prepared = prepareWithSegments(source, font);
+  // `pre-wrap` preserves the source's real line breaks as hard breaks. For the
+  // PGP key that means the `-----BEGIN-----`/`-----END-----` armor lines stay on
+  // their own rows, while the body (which is a single newline-free line) flows
+  // as ONE continuous chunk — combined with `breakAnywhere` it wraps around the
+  // photo character by character, with no ragged per-line remainders. For prose
+  // with no embedded newlines this is a no-op.
+  const whiteSpace = "pre-wrap";
+  let prepared = prepareWithSegments(source, font, { whiteSpace });
   // Widest single word, used to gate side-gaps so pretext never has to break a
   // word mid-grapheme to fit. NOTE: measureNaturalWidth on the normal prepared
   // text returns the widest *forced line* — with no hard breaks that's the whole
@@ -292,7 +312,12 @@ function createInstance(el) {
     // have to break that word mid-grapheme to fill the gap. We skip gaps
     // narrower than this so words always wrap whole. (Still keep a small floor
     // so we don't try to use slivers when the longest word is tiny.)
-    const minGap = Math.max(MIN_LINE_WIDTH, Math.ceil(minWordWidth));
+    // Break-anywhere blocks (e.g. the PGP key `pre`) are exempt: their long
+    // lines are meant to break to flow around the photo, so we only apply the
+    // small floor and let pretext grapheme-break them into the side gaps.
+    const minGap = breakAnywhere
+      ? MIN_LINE_WIDTH
+      : Math.max(MIN_LINE_WIDTH, Math.ceil(minWordWidth));
     const segmentsForY = buildSegmentsFn(colWidth, circle, lineHeight, minGap);
 
     // Walk bands top-to-bottom, filling each available segment with consecutive
@@ -367,7 +392,7 @@ function createInstance(el) {
       const t = resolveTypography(el);
       if (t.font !== font) {
         font = t.font;
-        prepared = prepareWithSegments(source, font);
+        prepared = prepareWithSegments(source, font, { whiteSpace });
         minWordWidth = widestWord(font);
       }
       if (t.lineHeight !== lineHeight) {

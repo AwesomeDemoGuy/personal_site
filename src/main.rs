@@ -73,6 +73,10 @@ async fn main() {
             CACHE_CONTROL,
             HeaderValue::from_static("no-cache"),
         ))
+        // Content negotiation for /gpg: non-browser clients (curl, wget, …) get
+        // the raw, importable ASCII-armored key as plain text; browsers fall
+        // through to the normal HTML page.
+        .layer(axum::middleware::from_fn(gpg_raw_key_for_cli))
         .with_state(app_state);
 
     log!("listening on http://{}", &addr);
@@ -86,4 +90,38 @@ async fn main() {
 pub fn main() {
     // No client-side main function.
     // The hydration entry point lives in lib.rs (`hydrate`).
+}
+
+/// Middleware: when a non-browser client requests `/gpg`, respond with the raw,
+/// importable ASCII-armored PGP key as plain text instead of the HTML page.
+///
+/// Browsers advertise `text/html` in their `Accept` header and fall through to
+/// the normal Leptos-rendered page; `curl`/`wget` (which send `Accept: */*` or
+/// no `Accept`) get the key, so `curl https://<site>/gpg | gpg --import` works.
+#[cfg(feature = "ssr")]
+async fn gpg_raw_key_for_cli(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+
+    if req.uri().path() == "/gpg" {
+        let wants_html = req
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .map(|accept| accept.contains("text/html"))
+            .unwrap_or(false);
+
+        if !wants_html {
+            return (
+                [(header::CONTENT_TYPE, "application/pgp-keys; charset=utf-8")],
+                personal_site::pages::gpg::PUBLIC_KEY,
+            )
+                .into_response();
+        }
+    }
+
+    next.run(req).await
 }

@@ -134,6 +134,23 @@ a {
   position: relative;
 }
 
+// GPG page: center the whole block (the "GPG Key" heading + the key) as one
+// column, so the heading shares the same left edge / indentation as the flowing
+// key below it rather than sitting at the page's left margin.
+.gpg {
+  max-width: 38.5rem;
+  margin-inline: auto;
+}
+
+// The PGP public key block (GPG page). Flowed by interop.js like `.intro`. It
+// fills the centered `.gpg` column above; the photo — centered over the page —
+// has symmetric room on both sides to displace the text into.
+.gpg pre {
+  color: $text-dim;
+  overflow-wrap: anywhere;
+  position: relative;
+}
+
 // Individual lines emitted by the pretext-driven flow layout. They are
 // absolutely positioned by interop.js; this just keeps them visually
 // consistent with the surrounding copy and still text-selectable.
@@ -192,6 +209,18 @@ a {
   flex: 0 0 auto;
 }
 
+// E-mail line on the about page: flows around the photo as two chips
+// (the address text and the GPG link). Position-relative is set by the chip
+// flow engine at runtime; declare it here too so layout is stable on first
+// paint before JS hydrates.
+.about-email {
+  position: relative;
+  margin: 0.25rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
 .cert-list {
   list-style: none;
   padding: 0;
@@ -207,7 +236,8 @@ a {
   }
 }
 
-// Icon shown next to a certificate (e.g. the yellow belt).
+// Icon shown next to a certificate (e.g. the yellow belt). Stays a fixed-size,
+// non-wrapping chip — only the name text next to it flows in words.
 .cert-icon {
   width: 1.6rem;
   height: 1.6rem;
@@ -215,9 +245,24 @@ a {
   flex: 0 0 auto;
 }
 
+// The certificate's label text. Flowed word-by-word around the photo by
+// interop.js (see FLOW_SELECTOR), independently of its icon sibling. `flex: 1`
+// lets it claim the row's remaining width so pretext has real space to wrap
+// into; `min-width: 0` allows it to shrink below its text's natural width
+// (the default flex minimum), which it needs to do to wrap at all.
+.cert-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  position: relative;
+}
+
 // A clickable certificate (icon + name) linking out to its source.
+// A clickable certificate (icon + name) linking out to its source. `flex: 1`
+// + `display: flex` (not inline-flex) lets it fill the row's width, which
+// cert-name in turn needs to have real space to wrap into.
 .cert-link {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: 0.6rem;
   color: $text-dim;
