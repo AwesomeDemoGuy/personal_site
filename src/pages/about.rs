@@ -191,25 +191,25 @@ fn WeatherWidget(#[prop(into)] location: String) -> impl IntoView {
 pub fn AboutPage() -> impl IntoView {
     view! {
         <section class="page about">
-            // <h1>"About Me"</h1>
-
             <WeatherWidget location="CA"/>
             <WeatherWidget location="AZ"/>
 
-            <p>
-                "sebastian11ryan[at]gmail[dot]com - "
+            <p class="about-email">
+                // Split at the square brackets so the address can wrap around
+                // the photo at those points (each piece is an atomic chip; the
+                // container packs them with no gap, so it reads continuously).
+                <span>"sebastian11ryan"</span>
+                <span>"[at]"</span>
+                <span>"gmail"</span>
+                <span>"[dot]"</span>
+                <span>"com -\u{00A0}"</span>
                 <a href="/gpg">"GPG Key"</a>
             </p>
 
             <p class="intro">
                 "Hi! I'm Sebastian Ashkar, a senior computer science undergrad at \
                 Arizona State University. I have a particular interest in cyber \
-                security. test test test test test test test test test test test \
-                test test test test test test test test test test test test test \
-                test test test test test test test test test test test test test \
-                test test test test test test test test test test test test test \
-                test test test test test test test test test test test test test \
-                test test test test test test test test test test test test test."
+                security."
             </p>
 
             <div class="links">
@@ -231,6 +231,15 @@ pub fn AboutPage() -> impl IntoView {
                     <img class="link-icon" src="/assets/GitHub.svg" alt=""/>
                     "GitHub"
                 </a>
+                <a
+                    class="ext-link"
+                    href="/assets/Sebastian_Ashkar_Resume.pdf"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >
+                    <img class="link-icon" src="/assets/resume_icon.png" alt=""/>
+                    "Resume"
+                </a>
             </div>
 
             <CertificatesSection/>
@@ -241,11 +250,11 @@ pub fn AboutPage() -> impl IntoView {
 
 #[component]
 fn CertificatesSection() -> impl IntoView {
-    // Placeholder list; will be sourced from the database later. Fields:
-    // (name, optional icon path, optional link URL).
-    let placeholders: [(&str, Option<&str>, Option<&str>); 1] = [
+    // Static list of certificates. Fields: (name, optional icon path, optional
+    // link URL).
+    let certificates: [(&str, Option<&str>, Option<&str>); 1] = [
         (
-            "Yellow Belt",
+            "pwn.college Yellow Belt",
             Some("/assets/yellow_belt.svg"),
             Some("https://pwn.college/hacker/92956"),
         ),
@@ -254,51 +263,71 @@ fn CertificatesSection() -> impl IntoView {
     view! {
         <div class="section certificates">
             <h2>"Certificates"</h2>
-            <ul class="cert-list">
-                {placeholders
+            <div class="cert-cards">
+                {certificates
                     .into_iter()
                     .map(|(name, icon, url)| {
-                        let icon_view = icon.map(|src| view! {
-                            <img class="cert-icon" src=src alt=""/>
+                        // The icon starts inside the card's link but becomes a
+                        // free, page-level draggable once moved (detaches to
+                        // <body> and stops acting as a hyperlink). Browser-only.
+                        let icon_view = icon.map(|src| {
+                            let icon_ref = NodeRef::<leptos::html::Img>::new();
+                            #[cfg(feature = "hydrate")]
+                            {
+                                use leptos::wasm_bindgen::JsCast;
+                                icon_ref.on_load(move |el| {
+                                    let element: web_sys::HtmlElement =
+                                        el.unchecked_into();
+                                    crate::interop::make_floating_draggable(&element);
+                                });
+                            }
+                            view! {
+                                <img
+                                    node_ref=icon_ref
+                                    class="cert-icon"
+                                    src=src
+                                    alt=""
+                                    draggable="false"
+                                />
+                            }
                         });
-                        view! {
-                            <li class="cert-item">
-                                {match url {
-                                    Some(href) => view! {
-                                        <a
-                                            class="cert-link"
-                                            href=href
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                        >
-                                            {icon_view}
-                                            <span class="cert-name">{name}</span>
-                                        </a>
-                                    }.into_any(),
-                                    None => view! {
-                                        {icon_view}
-                                        <span class="cert-name">{name}</span>
-                                    }.into_any(),
-                                }}
-                            </li>
+                        match url {
+                            Some(href) => view! {
+                                <a
+                                    class="cert-card"
+                                    href=href
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    draggable="false"
+                                >
+                                    {icon_view}
+                                    <span class="cert-name">{name}</span>
+                                </a>
+                            }.into_any(),
+                            None => view! {
+                                <div class="cert-card">
+                                    {icon_view}
+                                    <span class="cert-name">{name}</span>
+                                </div>
+                            }.into_any(),
                         }
                     })
                     .collect_view()}
-            </ul>
+            </div>
         </div>
     }
 }
 
 #[component]
 fn TechnologiesSection() -> impl IntoView {
-    // Placeholder tags; will be sourced from the database later.
-    let placeholders = ["Python", "PostgreSQL", "Docker", "Return Oriented Programing", "IDA Pro", "c/c++", "Linux", "Cross Site Scripting", "SQL Injection", "x86 Assembly"];
+    // Static list of technology / skill tags.
+    let technologies = ["Python", "PostgreSQL", "Docker", "Return Oriented Programing", "IDA Pro", "c/c++", "Linux", "Cross Site Scripting", "SQL Injection", "x86 Assembly"];
 
     view! {
         <div class="section technologies">
             <h2>"Technologies"</h2>
             <div class="tech-tags">
-                {placeholders
+                {technologies
                     .into_iter()
                     .map(|t| view! { <span class="tech-tag">{t}</span> })
                     .collect_view()}

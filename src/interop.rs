@@ -28,6 +28,13 @@ mod bindings {
         #[wasm_bindgen(js_name = makeDraggable)]
         pub fn make_draggable(element: &web_sys::HtmlElement);
 
+        /// Like `make_draggable`, but for an element nested inside other content
+        /// (e.g. the certificate icon inside its card's link). On the first real
+        /// drag it detaches to `<body>` as a free, page-level element and stops
+        /// behaving as a hyperlink; a plain click is left untouched.
+        #[wasm_bindgen(js_name = makeFloatingDraggable)]
+        pub fn make_floating_draggable(element: &web_sys::HtmlElement);
+
         /// Flow all prose text on every page around the photo using pretext,
         /// re-running on `photomove`, resize, and route changes. Call once.
         #[wasm_bindgen(js_name = setupAllTextFlow)]

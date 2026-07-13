@@ -1,8 +1,9 @@
 //! SQLite database access layer (server-only).
 //!
-//! This module owns the connection pool and the schema bootstrap. Query
-//! functions return the shared types from [`crate::models`]. Concrete content
-//! (posts, projects, etc.) will be filled in later.
+//! This module owns the connection pool and the schema bootstrap. It backs the
+//! dynamic collections (blog posts, projects) and the weather cache. Static
+//! presentation content (the About page's intro, certificates, technologies,
+//! etc.) lives in the markup, not here.
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
@@ -51,19 +52,6 @@ async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             name        TEXT NOT NULL,
             description TEXT NOT NULL,
             url         TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS certificates (
-            id     INTEGER PRIMARY KEY AUTOINCREMENT,
-            name   TEXT NOT NULL,
-            issuer TEXT NOT NULL,
-            year   INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS technologies (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            name     TEXT NOT NULL,
-            category TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS weather_cache (

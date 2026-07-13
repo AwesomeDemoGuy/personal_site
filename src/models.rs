@@ -22,21 +22,3 @@ pub struct Project {
     /// Optional link to a repo or live site.
     pub url: Option<String>,
 }
-
-/// A certificate / credential shown on the About page.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Certificate {
-    pub id: i64,
-    pub name: String,
-    pub issuer: String,
-    pub year: i64,
-}
-
-/// A technology / skill tag shown on the About page.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Technology {
-    pub id: i64,
-    pub name: String,
-    /// Free-form grouping, e.g. "Languages", "Frameworks", "Tools".
-    pub category: String,
-}
