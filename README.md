@@ -8,7 +8,7 @@ served from Docker.
 
 - Three tabs: **About** (default), **Blog**, **Projects**
 - Dark-mode theme (dark grey background, white text)
-- Draggable profile photo (pointer-drag via JS interop)
+- Draggable photos (pointer-drag via JS interop)
 - [pretext](https://github.com/chenglou/pretext) text-layout library wired in
   through `wasm-bindgen` JS interop
 - SQLite persistence via SQLx
@@ -53,28 +53,3 @@ docker compose up --build
 
 The site is served at http://localhost:31337. SQLite data persists in the
 `db-data` Docker volume.
-
-## Local development
-
-Requires the Rust toolchain, the `wasm32-unknown-unknown` target, and
-[`cargo-leptos`](https://github.com/leptos-rs/cargo-leptos):
-
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install cargo-leptos --locked
-
-# (optional) vendor the real pretext library; requires node + npm
-./scripts/vendor-pretext.sh
-
-cargo leptos watch
-```
-
-Without running the vendor script, `public/js/pretext.js` uses a lightweight
-canvas-based fallback so the app still builds and runs locally.
-
-## Customizing
-
-- Replace `public/assets/me.jpg` with your own photo.
-- Update the LinkedIn / GitHub URLs in `src/pages/about.rs`.
-- Page copy, certificates, technologies, blog posts, and projects are currently
-  placeholders to be filled in (eventually sourced from SQLite).
