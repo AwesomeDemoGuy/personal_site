@@ -1,7 +1,6 @@
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
-
 /// The default landing page. Holds the intro, external links, certificates,
 /// and technologies.
 
@@ -164,7 +163,7 @@ fn wmo_emoji(code: i64) -> &'static str {
         _ => "❓",                  // Unknown
     }
 }
-        
+
 #[component]
 fn WeatherWidget(#[prop(into)] location: String) -> impl IntoView {
     let location_for_view = location.clone();
@@ -252,13 +251,11 @@ pub fn AboutPage() -> impl IntoView {
 fn CertificatesSection() -> impl IntoView {
     // Static list of certificates. Fields: (name, optional icon path, optional
     // link URL).
-    let certificates: [(&str, Option<&str>, Option<&str>); 1] = [
-        (
-            "pwn.college Yellow Belt",
-            Some("/assets/yellow_belt.svg"),
-            Some("https://pwn.college/hacker/92956"),
-        ),
-    ];
+    let certificates: [(&str, Option<&str>, Option<&str>); 1] = [(
+        "pwn.college Yellow Belt",
+        Some("/assets/yellow_belt.svg"),
+        Some("https://pwn.college/hacker/92956"),
+    )];
 
     view! {
         <div class="section certificates">
@@ -321,7 +318,18 @@ fn CertificatesSection() -> impl IntoView {
 #[component]
 fn TechnologiesSection() -> impl IntoView {
     // Static list of technology / skill tags.
-    let technologies = ["Python", "PostgreSQL", "Docker", "Return Oriented Programing", "IDA Pro", "c/c++", "Linux", "Cross Site Scripting", "SQL Injection", "x86 Assembly"];
+    let technologies = [
+        "Python",
+        "PostgreSQL",
+        "Docker",
+        "Return Oriented Programing",
+        "IDA Pro",
+        "c/c++",
+        "Linux",
+        "Cross Site Scripting",
+        "SQL Injection",
+        "x86 Assembly",
+    ];
 
     view! {
         <div class="section technologies">
