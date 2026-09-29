@@ -9,6 +9,7 @@ async fn main() {
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use personal_site::app::*;
     use personal_site::db;
+    use personal_site::pages::about::WeatherService;
     use tower_http::services::ServeDir;
     use tower_http::set_header::SetResponseHeaderLayer;
 
@@ -20,6 +21,7 @@ async fn main() {
     let pool = db::init_pool()
         .await
         .expect("failed to initialize SQLite database");
+    let weather = WeatherService::new().expect("failed to initialize weather client");
 
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
@@ -32,6 +34,7 @@ async fn main() {
     let app_state = AppState {
         leptos_options: leptos_options.clone(),
         pool,
+        weather,
     };
 
     // The compiled JS/WASM/CSS bundle lives under <site_root>/pkg. We serve it
@@ -51,7 +54,10 @@ async fn main() {
             routes,
             {
                 let app_state = app_state.clone();
-                move || provide_context(app_state.pool.clone())
+                move || {
+                    provide_context(app_state.pool.clone());
+                    provide_context(app_state.weather.clone());
+                }
             },
             {
                 let leptos_options = leptos_options.clone();

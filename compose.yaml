@@ -1,12 +1,15 @@
 # Docker Compose for the personal site.
-# Build: docker compose build
-# Run:   docker compose up
+# Build: docker compose build   (or: podman-compose build)
+# Run:   docker compose up       (or: podman-compose up)
 #
 # Build caching: the Dockerfile uses cargo-chef plus BuildKit `--mount=type=cache`
 # mounts (cargo registry/git + the compiled target/ dir), so rebuilds reuse
-# downloaded crates and compiled dependencies and only recompile changed code.
-# The image is tagged and used as an inline cache source so those layers are
-# also restorable from the image itself.
+# downloaded crates and compiled dependencies and only recompile changed code,
+# with no help needed from compose-level `cache_from`/`cache_to`.
+# NOTE: deliberately no `cache_from`/`cache_to` here — both are Docker
+# buildx-only conventions that podman's build backend rejects: `cache_to:
+# type=inline` errors with "invalid repo", and `cache_from: <tagged image>`
+# errors with "repository must contain neither a tag nor digest".
 
 services:
   server:
@@ -15,10 +18,6 @@ services:
       target: final
       tags:
         - personal_site:latest
-      cache_from:
-        - personal_site:latest
-      cache_to:
-        - type=inline
     ports:
       - "31337:31337"
     environment:
@@ -48,3 +47,4 @@ networks:
 
 volumes:
   db-data:
+

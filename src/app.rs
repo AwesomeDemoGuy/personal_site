@@ -17,6 +17,7 @@ use crate::pages::{about::AboutPage, blog::BlogPage, gpg::GpgPage, projects::Pro
 pub struct AppState {
     pub leptos_options: leptos::config::LeptosOptions,
     pub pool: sqlx::SqlitePool,
+    pub weather: crate::pages::about::WeatherService,
 }
 
 /// The HTML document shell rendered by the server for every request.
