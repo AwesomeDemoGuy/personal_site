@@ -23,6 +23,25 @@ pub fn DraggablePhoto(
             let element: web_sys::HtmlElement = el.unchecked_into();
             crate::interop::make_draggable(&element);
         });
+        if let Some(context) = use_context::<crate::text_flow::controller::FlowContext>() {
+            let id = StoredValue::new(None::<u64>);
+            node_ref.on_load(move |el| {
+                id.set_value(Some(context.register_obstacle(
+                    el.unchecked_into(),
+                    crate::text_flow::controller::ObstacleKind::Photo,
+                )))
+            });
+            on_cleanup(move || {
+                if let Some(id) = id.get_value() {
+                    context.unregister(id);
+                }
+            });
+        }
+        on_cleanup(move || {
+            if let Some(el) = node_ref.get_untracked() {
+                crate::interop::dispose_draggable(&el.unchecked_into());
+            }
+        });
     }
 
     view! {

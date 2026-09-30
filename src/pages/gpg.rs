@@ -1,3 +1,4 @@
+use crate::components::flow_text::FlowText;
 use leptos::prelude::*;
 
 /// The ASCII-armored public key, served verbatim to non-browser clients (curl,
@@ -82,8 +83,8 @@ pub fn GpgPage() -> impl IntoView {
 
     view! {
         <section class="page gpg">
-            <h1>"GPG Key"</h1>
-            <pre>{flowing_key}</pre>
+            <h1><FlowText text="GPG Key".to_string()/></h1>
+            <pre><FlowText text=flowing_key break_anywhere=true/></pre>
         </section>
     }
 }

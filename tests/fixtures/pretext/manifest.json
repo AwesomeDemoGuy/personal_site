@@ -1,0 +1,6 @@
+{
+  "version": "0.0.8",
+  "sha256": "ef7f4d3918cd41d6315a2c25300aeade13b5e956aedb24d8c7325c8f1d3c3bab",
+  "cases": 756,
+  "metricBackend": "deterministic; not browser fonts"
+}

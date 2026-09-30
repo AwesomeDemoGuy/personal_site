@@ -19,12 +19,7 @@ WORKDIR /app
 
 # Build dependencies. cargo-leptos uses dart-sass + wasm; clang/lld speed up linking.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        clang lld pkg-config libssl-dev curl ca-certificates gnupg \
-    && rm -rf /var/lib/apt/lists/*
-
-# Node.js (for bundling the pretext JS library). Used only at build time.
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
+        clang lld pkg-config libssl-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # WASM target for the client/hydrate bundle.
@@ -78,11 +73,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # Copy the full source (cargo-leptos needs Cargo.toml, src, style, public).
 COPY . .
-
-# Vendor the real pretext library into public/js/pretext.js as a single ESM
-# bundle (overwrites the fallback stub). Runs before the Leptos build so the
-# bundled module is picked up by wasm-bindgen.
-RUN ./scripts/vendor-pretext.sh
 
 # Produce an optimized SSR binary + hashed site assets under target/site. The
 # same cache mounts as the cook step above are reused here, so the cooked

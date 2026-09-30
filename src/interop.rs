@@ -1,20 +1,7 @@
 //! JavaScript interop layer via `wasm-bindgen`.
 //!
-//! All browser-side behavior for the profile photo lives in
-//! `public/js/interop.js`:
-//!   1. `make_draggable` — drag-to-move behavior for the profile photo.
-//!   2. `setup_all_text_flow` — uses the pretext layout library to reflow ALL
-//!      prose text on every page around the photo's circular shape, so the text
-//!      is displaced as the photo is dragged (pretext use case #2). It
-//!      auto-discovers text blocks under the main content region and re-scans
-//!      on client-side route changes.
-//!
-//! `interop.js` loads pretext itself via a dynamic `import('/js/pretext.js')`,
-//! so the (per-drag-frame) layout hot path stays in JS and never crosses the
-//! wasm boundary.
-//!
-//! Both are no-ops on the server build; the bindings only compile under the
-//! `hydrate` feature where wasm-bindgen and web-sys are available.
+//! Temporary pointer-drag bridge. Text preparation and flow run in Rust.
+//! Component cleanup releases listeners; Leptos handles navigation resets.
 
 #[cfg(feature = "hydrate")]
 mod bindings {
@@ -28,17 +15,11 @@ mod bindings {
         #[wasm_bindgen(js_name = makeDraggable)]
         pub fn make_draggable(element: &web_sys::HtmlElement);
 
-        /// Like `make_draggable`, but for an element nested inside other content
-        /// (e.g. the certificate icon inside its card's link). On the first real
-        /// drag it detaches to `<body>` as a free, page-level element and stops
-        /// behaving as a hyperlink; a plain click is left untouched.
-        #[wasm_bindgen(js_name = makeFloatingDraggable)]
-        pub fn make_floating_draggable(element: &web_sys::HtmlElement);
+        #[wasm_bindgen(js_name = resetAllDraggables)]
+        pub fn reset_draggables();
 
-        /// Flow all prose text on every page around the photo using pretext,
-        /// re-running on `photomove`, resize, and route changes. Call once.
-        #[wasm_bindgen(js_name = setupAllTextFlow)]
-        pub fn setup_all_text_flow();
+        #[wasm_bindgen(js_name = disposeDraggable)]
+        pub fn dispose_draggable(element: &web_sys::HtmlElement);
     }
 }
 

@@ -43,8 +43,21 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 # the exact wasm-bindgen version), which Cargo resolves automatically.
 wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", features = ["HtmlElement", "Element"], optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "HtmlElement", "Element", "HtmlCanvasElement",
+    "CanvasRenderingContext2d", "TextMetrics", "CssStyleDeclaration", "DomRect",
+    "Navigator", "FontFaceSet", "ResizeObserver",
+    "Event", "EventTarget", "PointerEvent", "MouseEvent", "HtmlCollection",
+], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
+
+[dev-dependencies]
+# Decode the compressed native parity fixtures; excluded from production.
+flate2 = "1"
+# Grapheme fallback in native tests and Unicode table regeneration only.
+unicode-segmentation = "1"
+regex = "1"
 
 [features]
 default = ["ssr"]
@@ -53,8 +66,10 @@ hydrate = [
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
     "dep:js-sys",
+    "dep:wasm-bindgen-futures",
     "dep:web-sys",
 ]
+pretext-validation = ["web-sys?/Performance"]
 ssr = [
     "dep:axum",
     "dep:tokio",

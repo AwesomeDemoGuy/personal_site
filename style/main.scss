@@ -69,7 +69,7 @@ a {
   user-select: none;
   will-change: transform;
   // Float above the page content so it can be dragged over the text it
-  // displaces (the text reflows around it via pretext; see interop.js).
+  // displaces (the text reflows around it via the Rust text-flow controller).
   position: relative;
   z-index: 10;
 
@@ -127,7 +127,7 @@ a {
 
 .intro {
   color: $text-dim;
-  // The pretext text-flow layout (interop.js) positions each line absolutely
+  // The Rust text-flow layout positions each line absolutely
   // within this box and sets its height explicitly. Keep it full-width so the
   // photo has room to displace lines to either side.
   max-width: 100%;
@@ -151,12 +151,20 @@ a {
   position: relative;
 }
 
-// Individual lines emitted by the pretext-driven flow layout. They are
+// Individual lines emitted by the Rust flow layout. They are
 // absolutely positioned by interop.js; this just keeps them visually
 // consistent with the surrounding copy and still text-selectable.
 .flow-line {
-  color: $text-dim;
+  position: absolute;
+  white-space: pre;
+  color: inherit;
   pointer-events: auto;
+}
+
+.flow-text {
+  display: block;
+  position: relative;
+  width: 100%;
 }
 
 // Live weather widget. The resolved text span is flowed around the photo by
@@ -167,7 +175,7 @@ a {
   color: $text-dim;
   font-size: 0.95rem;
 
-  span:not(.weather-loading) {
+  > .flow-text {
     display: block;
     position: relative;
     width: 100%;
@@ -177,7 +185,7 @@ a {
     color: $text-dim;
     opacity: 0.7;
   }
-}TypeScript
+}
 
 .links {
   display: flex;
@@ -257,6 +265,8 @@ a.cert-card:hover {
 
 // Icon shown at the top of a certificate card.
 .cert-icon {
+  touch-action: none;
+  cursor: grab;
   width: 5rem;
   height: 5rem;
   object-fit: contain;

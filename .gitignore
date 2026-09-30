@@ -13,7 +13,7 @@
 .env.*
 !.env.example
 
-# Node (transient; only used to vendor pretext at build time)
+# Optional development-only browser/reference test dependencies
 node_modules/
 
 # OS / editor cruft

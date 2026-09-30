@@ -1,3 +1,4 @@
+use crate::components::flow_text::FlowText;
 use leptos::prelude::*;
 
 /// Blog tab. Post content will be loaded from SQLite via a server function
@@ -6,8 +7,8 @@ use leptos::prelude::*;
 pub fn BlogPage() -> impl IntoView {
     view! {
         <section class="page blog">
-            <h1>"Blog"</h1>
-            <p class="empty">"Posts coming soon."</p>
+            <h1><FlowText text="Blog".to_string()/></h1>
+            <p class="empty"><FlowText text="Posts coming soon.".to_string()/></p>
         </section>
     }
 }

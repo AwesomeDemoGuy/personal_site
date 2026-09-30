@@ -6,6 +6,7 @@ use leptos_router::{
 };
 
 use crate::components::photo::DraggablePhoto;
+use crate::components::{flow_provider::FlowProvider, flow_text::FlowText};
 use crate::pages::{about::AboutPage, blog::BlogPage, gpg::GpgPage, projects::ProjectsPage};
 
 /// Shared application state passed to Axum and Leptos route handlers.
@@ -49,6 +50,7 @@ pub fn App() -> impl IntoView {
         <Title text="Personal Site"/>
 
         <Router>
+          <FlowProvider>
             <div class="app-shell">
                 <Header/>
                 <main class="content">
@@ -62,6 +64,7 @@ pub fn App() -> impl IntoView {
                 </main>
                 <Footer/>
             </div>
+          </FlowProvider>
         </Router>
     }
 }
@@ -95,8 +98,8 @@ fn Footer() -> impl IntoView {
 fn NotFound() -> impl IntoView {
     view! {
         <div class="not-found">
-            <h1>"Error 404"</h1>
-            <p>"That page does not exist."</p>
+            <h1><FlowText text="Error 404".to_string()/></h1>
+            <p><FlowText text="That page does not exist.".to_string()/></p>
             <A href="/about" attr:class="tab">"Back to About Page"</A>
         </div>
     }

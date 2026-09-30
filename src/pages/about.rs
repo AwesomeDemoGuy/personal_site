@@ -1,3 +1,7 @@
+use crate::components::{
+    flow_chips::{ChipTag, FlowChips},
+    flow_text::FlowText,
+};
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -145,41 +149,38 @@ fn wmo_description(code: i64) -> &'static str {
 // Emoji matching the WMO weather code, grouped the same way as wmo_description.
 fn wmo_emoji(code: i64) -> &'static str {
     match code {
-        0 => "☀️",                 // Clear sky
-        1 => "🌤️",                 // Mainly clear
-        2 => "⛅",                  // Partly cloudy
-        3 => "☁️",                  // Overcast
-        45 | 48 => "🌫️",           // Fog
-        51 | 53 | 55 => "🌦️",      // Drizzle
-        56 | 57 => "🌧️",           // Freezing drizzle
-        61 | 63 | 65 => "🌧️",      // Rain
-        66 | 67 => "🌧️",           // Freezing rain
-        71 | 73 | 75 => "❄️",       // Snow fall
-        77 => "🌨️",                // Snow grains
-        80 | 81 | 82 => "🌧️",      // Rain showers
-        85 | 86 => "🌨️",           // Snow showers
-        95 => "⛈️",                 // Thunderstorm
-        96 | 99 => "⛈️",            // Thunderstorm with hail
-        _ => "❓",                  // Unknown
+        0 => "☀️",            // Clear sky
+        1 => "🌤️",            // Mainly clear
+        2 => "⛅",            // Partly cloudy
+        3 => "☁️",            // Overcast
+        45 | 48 => "🌫️",      // Fog
+        51 | 53 | 55 => "🌦️", // Drizzle
+        56 | 57 => "🌧️",      // Freezing drizzle
+        61 | 63 | 65 => "🌧️", // Rain
+        66 | 67 => "🌧️",      // Freezing rain
+        71 | 73 | 75 => "❄️", // Snow fall
+        77 => "🌨️",           // Snow grains
+        80 | 81 | 82 => "🌧️", // Rain showers
+        85 | 86 => "🌨️",      // Snow showers
+        95 => "⛈️",           // Thunderstorm
+        96 | 99 => "⛈️",      // Thunderstorm with hail
+        _ => "❓",            // Unknown
     }
 }
 
 #[component]
 fn WeatherWidget(#[prop(into)] location: String) -> impl IntoView {
     let location_for_view = location.clone();
-    let weather = Resource::new(
-        || (),
-        move |_| get_weather(location.clone()),
-    );
+    let weather = Resource::new(|| (), move |_| get_weather(location.clone()));
 
     view! {
         <div class="weather-widget">
             <Suspense fallback=|| view! { <span class="weather-loading">"Loading weather…"</span> }>
                 {move || weather.get().map(|res| match res {
                     Ok(w) => view! {
-                        <span>{format!("{} | {} {:.0}°F · {}", location_for_view.clone(), w.emoji, w.temp_f, w.description)}</span>
+                        <FlowText text=format!("{} | {} {:.0}°F · {}", location_for_view.clone(), w.emoji, w.temp_f, w.description)/>
                     }.into_any(),
-                    Err(_) => view! { <span>"Weather unavailable"</span> }.into_any(),
+                    Err(_) => view! { <FlowText text="Weather unavailable".to_string()/> }.into_any(),
                 })}
             </Suspense>
         </div>
@@ -193,7 +194,7 @@ pub fn AboutPage() -> impl IntoView {
             <WeatherWidget location="CA"/>
             <WeatherWidget location="AZ"/>
 
-            <p class="about-email">
+            <FlowChips class="about-email" tag=ChipTag::Paragraph>
                 // Split at the square brackets so the address can wrap around
                 // the photo at those points (each piece is an atomic chip; the
                 // container packs them with no gap, so it reads continuously).
@@ -203,15 +204,15 @@ pub fn AboutPage() -> impl IntoView {
                 <span>"[dot]"</span>
                 <span>"com -\u{00A0}"</span>
                 <a href="/gpg">"GPG Key"</a>
-            </p>
+            </FlowChips>
 
             <p class="intro">
-                "Hi! I'm Sebastian Ashkar, a senior computer science undergrad at \
+                <FlowText text="Hi! I'm Sebastian Ashkar, a senior computer science undergrad at \
                 Arizona State University. I have a particular interest in cyber \
-                security."
+                security.".to_string()/>
             </p>
 
-            <div class="links">
+            <FlowChips class="links">
                 <a
                     class="ext-link"
                     href="https://www.linkedin.com/in/sebastianashkar/"
@@ -239,7 +240,7 @@ pub fn AboutPage() -> impl IntoView {
                     <img class="link-icon" src="/assets/resume_icon.png" alt=""/>
                     "Resume"
                 </a>
-            </div>
+            </FlowChips>
 
             <CertificatesSection/>
             <TechnologiesSection/>
@@ -259,34 +260,13 @@ fn CertificatesSection() -> impl IntoView {
 
     view! {
         <div class="section certificates">
-            <h2>"Certificates"</h2>
-            <div class="cert-cards">
+            <h2><FlowText text="Certificates".to_string()/></h2>
+            <FlowChips class="cert-cards" exclude_certificates=true>
                 {certificates
                     .into_iter()
                     .map(|(name, icon, url)| {
-                        // The icon starts inside the card's link but becomes a
-                        // free, page-level draggable once moved (detaches to
-                        // <body> and stops acting as a hyperlink). Browser-only.
-                        let icon_view = icon.map(|src| {
-                            let icon_ref = NodeRef::<leptos::html::Img>::new();
-                            #[cfg(feature = "hydrate")]
-                            {
-                                use leptos::wasm_bindgen::JsCast;
-                                icon_ref.on_load(move |el| {
-                                    let element: web_sys::HtmlElement =
-                                        el.unchecked_into();
-                                    crate::interop::make_floating_draggable(&element);
-                                });
-                            }
-                            view! {
-                                <img
-                                    node_ref=icon_ref
-                                    class="cert-icon"
-                                    src=src
-                                    alt=""
-                                    draggable="false"
-                                />
-                            }
+                        let icon_view = icon.map(|src| view! {
+                            <crate::components::certificate_icon::CertificateIcon src=src/>
                         });
                         match url {
                             Some(href) => view! {
@@ -310,7 +290,7 @@ fn CertificatesSection() -> impl IntoView {
                         }
                     })
                     .collect_view()}
-            </div>
+            </FlowChips>
         </div>
     }
 }
@@ -333,13 +313,13 @@ fn TechnologiesSection() -> impl IntoView {
 
     view! {
         <div class="section technologies">
-            <h2>"Technologies"</h2>
-            <div class="tech-tags">
+            <h2><FlowText text="Technologies".to_string()/></h2>
+            <FlowChips class="tech-tags">
                 {technologies
                     .into_iter()
                     .map(|t| view! { <span class="tech-tag">{t}</span> })
                     .collect_view()}
-            </div>
+            </FlowChips>
         </div>
     }
 }
