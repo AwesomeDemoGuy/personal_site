@@ -2,11 +2,16 @@ use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
     components::{Route, Router, Routes, A},
-    StaticSegment,
+    ParamSegment, SsrMode, StaticSegment,
 };
 
 use crate::components::photo::DraggablePhoto;
-use crate::pages::{about::AboutPage, blog::BlogPage, gpg::GpgPage, projects::ProjectsPage};
+use crate::pages::{
+    about::AboutPage,
+    blog::{BlogPage, BlogPostPage},
+    gpg::GpgPage,
+    projects::ProjectsPage,
+};
 
 /// Shared application state passed to Axum and Leptos route handlers.
 ///
@@ -57,7 +62,8 @@ pub fn App() -> impl IntoView {
                         <Route path=StaticSegment("") view=AboutPage/>
                         <Route path=StaticSegment("about") view=AboutPage/>
                         <Route path=StaticSegment("gpg") view=GpgPage/>
-                        <Route path=StaticSegment("blog") view=BlogPage/>
+                        <Route path=StaticSegment("blog") view=BlogPage ssr=SsrMode::Async/>
+                        <Route path=(StaticSegment("blog"), ParamSegment("slug")) view=BlogPostPage ssr=SsrMode::Async/>
                         <Route path=StaticSegment("projects") view=ProjectsPage/>
                     </Routes>
                 </main>

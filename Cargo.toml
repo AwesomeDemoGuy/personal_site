@@ -14,7 +14,6 @@ leptos_axum = { version = "0.8", optional = true }
 
 axum = { version = "0.8", features = ["macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"], optional = true }
-tower = { version = "0.5", optional = true }
 tower-http = { version = "0.7", features = ["fs", "set-header"], optional = true }
 
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"], optional = true }
@@ -22,27 +21,28 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "j
 # Loads variables from a .env file at startup (server-only, local dev).
 dotenvy = { version = "0.15", optional = true }
 
+# Markdown conversion and HTML sanitization run only on the server.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"], optional = true }
+ammonia = { version = "4", optional = true }
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "html", "regex-fancy"], optional = true }
+
 # Server-side database (SQLite via SQLx)
-sqlx = { version = "0.9", features = [
+sqlx = { version = "0.9", default-features = false, features = [
     "runtime-tokio",
     "sqlite",
-    "macros",
-    "chrono",
+    "derive",
 ], optional = true }
 
 # Shared
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 
 # Client-side / hydration + JS interop
 # NOTE: cargo-leptos 0.3+ auto-detects the wasm-bindgen version from this
 # project's Cargo.lock and downloads the matching wasm-bindgen CLI, so the
-# crate and the bindgen tool always share the same schema. Keep js-sys and
-# web-sys in lockstep with wasm-bindgen (the matching js-sys/web-sys patch pins
+# crate and the bindgen tool always share the same schema. Keep web-sys
+# in lockstep with wasm-bindgen (the matching web-sys patch pins
 # the exact wasm-bindgen version), which Cargo resolves automatically.
 wasm-bindgen = { version = "0.2", optional = true }
-js-sys = { version = "0.3", optional = true }
 web-sys = { version = "0.3", features = ["HtmlElement", "Element"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 
@@ -52,18 +52,19 @@ hydrate = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
-    "dep:js-sys",
     "dep:web-sys",
 ]
 ssr = [
     "dep:axum",
     "dep:tokio",
-    "dep:tower",
     "dep:tower-http",
     "dep:leptos_axum",
     "dep:sqlx",
     "dep:reqwest",
     "dep:dotenvy",
+    "dep:pulldown-cmark",
+    "dep:ammonia",
+    "dep:syntect",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

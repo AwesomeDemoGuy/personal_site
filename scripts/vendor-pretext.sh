@@ -28,8 +28,14 @@ cd "${WORK_DIR}"
 npm install --no-save --no-audit --no-fund \
   "@chenglou/pretext@${PRETEXT_VERSION}"
 
+# Include rich-inline from the same Pretext package in the existing module.
+cat > entry.mjs <<'EOF'
+export * from '@chenglou/pretext';
+export * from '@chenglou/pretext/rich-inline';
+EOF
+
 npx --yes "esbuild@${ESBUILD_VERSION}" \
-  "node_modules/@chenglou/pretext/dist/layout.js" \
+  entry.mjs \
   --bundle \
   --format=esm \
   --platform=browser \

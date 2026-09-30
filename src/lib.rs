@@ -6,6 +6,9 @@ pub mod pages;
 #[cfg(feature = "ssr")]
 pub mod db;
 
+#[cfg(feature = "ssr")]
+pub mod markdown;
+
 pub mod models;
 
 #[cfg(feature = "hydrate")]

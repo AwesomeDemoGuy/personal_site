@@ -177,7 +177,7 @@ a {
     color: $text-dim;
     opacity: 0.7;
   }
-}TypeScript
+}
 
 .links {
   display: flex;
@@ -289,6 +289,188 @@ a.cert-card:hover {
 
 .empty {
   color: $text-dim;
+}
+
+.blog-back {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+}
+
+.published-at {
+  display: block;
+  color: $text-dim;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.blog-posts {
+  list-style: none;
+  padding: 0;
+
+  li {
+    margin: 1.5rem 0;
+  }
+
+  a {
+    font-size: 1.2rem;
+  }
+}
+
+.markdown-body {
+  display: flow-root;
+  overflow-wrap: anywhere;
+
+  h1, h2, h3, h4, h5, h6 {
+    scroll-margin-top: 1rem;
+  }
+
+  p, .markdown-inline {
+    margin: 0 0 1.2rem;
+  }
+
+  h3, h4, h5, h6 {
+    margin: 1.5rem 0 0.75rem;
+  }
+
+  ul, ol {
+    padding-left: 1.5rem;
+    margin-bottom: 1.2rem;
+  }
+
+  li > .markdown-inline {
+    margin-bottom: 0.4rem;
+  }
+
+  blockquote {
+    margin: 1.2rem 0;
+    padding: 0.25rem 0 0.25rem 1.25rem;
+    border-left: 3px solid $accent;
+    color: $text-dim;
+  }
+
+  code {
+    font-family: "DejaVu Sans Mono", "Courier New", monospace;
+    background: $bg-elev;
+    border-radius: 3px;
+  }
+
+  pre {
+    padding: 1rem;
+    margin: 1.2rem 0;
+    background: $bg-elev;
+    border: 1px solid $border;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    tab-size: 8;
+
+    &.code-copy-enabled {
+      padding-top: 3.5rem;
+    }
+
+    .code-copy-button {
+      position: absolute;
+      top: 0.65rem;
+      right: 0.75rem;
+      padding: 0.3rem 0.65rem;
+      border: 1px solid $border;
+      border-radius: 4px;
+      background: $bg;
+      color: $text-dim;
+      font: 0.85rem/1.5 "Inter", system-ui, sans-serif;
+      cursor: pointer;
+
+      &:hover { color: $text; border-color: $accent; }
+      &:focus-visible { outline: 2px solid $accent; outline-offset: 2px; }
+    }
+
+    .code-copy-status {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    code {
+      font-size: inherit;
+      line-height: inherit;
+    }
+
+    // Server-generated syntax scopes. Use colors only so highlighted code has
+    // identical metrics before and after Pretext lays out its visible lines.
+    .syntax-keyword, .syntax-storage { color: #c792ea; }
+    .syntax-function, .syntax-entity.syntax-name { color: #82aaff; }
+    .syntax-type, .syntax-support { color: #89ddff; }
+    .syntax-constant { color: #f78c6c; }
+    .syntax-string { color: #c3e88d; }
+    .syntax-comment { color: #8b9caf; }
+    .syntax-invalid { color: #ff5370; }
+  }
+
+  img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+  }
+
+  img[width] {
+    width: min(100%, var(--blog-image-width));
+    margin-inline: auto;
+  }
+
+  // Server-rendered figures have a readable native layout before hydration.
+  .blog-image, .blog-image-placeholder {
+    display: block;
+    width: min(100%, var(--blog-image-width, min(42%, 20rem)));
+    margin: 0 auto 1.2rem;
+  }
+
+  &[data-markdown-init="1"] .blog-image {
+    position: relative;
+    z-index: 1;
+  }
+
+  .markdown-image-group {
+    position: relative;
+    display: flow-root;
+    margin-bottom: 1.2rem;
+  }
+
+  // The canonical HTML remains in the accessibility tree with one tab stop per
+  // link. Pretext's visual fragments mirror focus and are hidden from AT.
+  .markdown-flow-ready > .flow-source {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: inherit;
+    user-select: none;
+  }
+
+  .flow-line {
+    color: inherit;
+    white-space: pre;
+  }
+
+  .flow-link-focus {
+    outline: 2px solid $accent;
+    outline-offset: 2px;
+  }
+}
+
+// Dragged figures move to the document body so prose reflow cannot move them.
+// Keep the image sized to its figure after it leaves .markdown-body.
+.blog-image[data-floating="1"] img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
 }
 
 // ---- Footer ------------------------------------------------------------

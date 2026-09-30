@@ -6,9 +6,9 @@
 //
 // The text-flow layout is computed by the pretext library
 // (https://github.com/chenglou/pretext), use case #2 ("lay out the paragraph
-// lines manually"): prepareWithSegments -> layoutNextLineRange ->
-// materializeLineRange, narrowing the lines that overlap the photo's current
-// rectangle. pretext is loaded with a dynamic absolute import so it resolves
+// lines manually"): the plain and rich-inline streaming APIs route each line
+// through the available gaps around circular photos and rectangular figures.
+// pretext is loaded with a dynamic absolute import so it resolves
 // against the served site root (/js/pretext.js) rather than the wasm-bindgen
 // snippets directory.
 
@@ -140,7 +140,7 @@ export function makeDraggable(element) {
 //     absolutely-positioned element at its current on-screen spot. From then on
 //     it is no longer tied to its original container's layout, and — being
 //     outside the surrounding <a> — no longer acts as a hyperlink.
-export function makeFloatingDraggable(element) {
+export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
   if (!element || element.dataset.draggableInit === "1") return;
   element.dataset.draggableInit = "1";
 
@@ -167,6 +167,10 @@ export function makeFloatingDraggable(element) {
     card = element.parentNode;
     if (card) {
       placeholder = document.createElement("div");
+      if (element.classList.contains("blog-image")) {
+        placeholder.className = "blog-image-placeholder";
+        placeholder.style.setProperty("--blog-image-width", element.style.getPropertyValue("--blog-image-width"));
+      }
       placeholder.style.width = `${rect.width}px`;
       placeholder.style.height = `${rect.height}px`;
       placeholder.style.flex = "0 0 auto";
@@ -186,7 +190,7 @@ export function makeFloatingDraggable(element) {
     // register it immediately (don't wait for the next scan) so text starts
     // wrapping around it on this very drag.
     element.dataset.floating = "1";
-    if (!flow.photoEls.includes(element)) flow.photoEls.push(element);
+    if (!flow.obstacleEls.includes(element)) flow.obstacleEls.push(element);
   };
 
   // Is the icon's center currently over its origin card's box?
@@ -220,8 +224,8 @@ export function makeFloatingDraggable(element) {
     popped = false;
     offsetX = 0;
     offsetY = 0;
-    const idx = flow.photoEls.indexOf(element);
-    if (idx !== -1) flow.photoEls.splice(idx, 1);
+    const idx = flow.obstacleEls.indexOf(element);
+    if (idx !== -1) flow.obstacleEls.splice(idx, 1);
     // Reflow now that the belt is no longer a floating obstacle.
     document.dispatchEvent(new CustomEvent(PHOTO_MOVE_EVENT));
   };
@@ -244,7 +248,10 @@ export function makeFloatingDraggable(element) {
     const dy = e.clientY - startY;
     // Ignore sub-threshold jitter so a click isn't misread as a drag.
     if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-    if (!moved) moved = true;
+    if (!moved) {
+      moved = true;
+      element.style.cursor = "grabbing";
+    }
     if (!popped) popOut();
     offsetX = baseX + dx;
     offsetY = baseY + dy;
@@ -255,6 +262,7 @@ export function makeFloatingDraggable(element) {
   const endDrag = () => {
     if (!dragging) return;
     dragging = false;
+    element.style.cursor = "grab";
     window.removeEventListener("pointermove", onPointerMove);
     window.removeEventListener("pointerup", endDrag);
     window.removeEventListener("pointercancel", endDrag);
@@ -262,10 +270,11 @@ export function makeFloatingDraggable(element) {
     // A real drag just ended: note the time so its click is swallowed, and if
     // the icon was dropped back over its card, dock it there.
     lastDragEndAt = performance.now();
-    if (popped && withinCard()) dock();
+    if (dockOnDrop && popped && withinCard()) dock();
   };
 
   const onPointerDown = (e) => {
+    if (e.button !== 0 || e.isPrimary === false) return;
     // Only a press that starts on the element begins a drag; passing the cursor
     // over the element while a button is held (a drag begun elsewhere) does not.
     dragging = true;
@@ -295,15 +304,26 @@ export function makeFloatingDraggable(element) {
   element.style.cursor = "grab";
   element.addEventListener("pointerdown", onPointerDown);
   element.addEventListener("click", onClick);
+  element.addEventListener("dragstart", (event) => event.preventDefault());
 
   // On navigation, restore the default: if it was popped out (and possibly
   // orphaned when its card was removed), discard it — the about page renders a
   // fresh, docked icon when it mounts again. If still docked, just clear any
   // transform.
   registerDragReset(element, () => {
+    dragging = false;
+    element.style.cursor = "grab";
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", endDrag);
+    window.removeEventListener("pointercancel", endDrag);
     if (popped) {
-      const idx = flow.photoEls.indexOf(element);
-      if (idx !== -1) flow.photoEls.splice(idx, 1);
+      if (!dockOnDrop && card?.isConnected) {
+        dock();
+        moved = false;
+        return;
+      }
+      const idx = flow.obstacleEls.indexOf(element);
+      if (idx !== -1) flow.obstacleEls.splice(idx, 1);
       if (placeholder && placeholder.parentNode) placeholder.remove();
       placeholder = null;
       card = null;
@@ -369,7 +389,7 @@ function resolveTypography(el) {
 // newline-free line, so it flows as one continuous chunk around the photo while
 // the `-----BEGIN-----`/`-----END-----` armor lines stay on their own rows.
 const FLOW_SELECTOR =
-  "p, h1, h2, h3, h4, li, blockquote, .weather-widget span:not(.weather-loading), pre";
+  "p, h1, h2, h3, h4, h5, h6, li, blockquote, .weather-widget span:not(.weather-loading), pre";
 
 // Containers whose direct element children are atomic "chips" (link buttons,
 // tech tags) that should flow around the photo as indivisible units — each chip
@@ -379,12 +399,14 @@ const CHIP_CONTAINER_SELECTOR = ".links, .tech-tags, .about-email, .cert-cards";
 // Shared state across every flowed element on the page.
 const flow = {
   pretext: null,
-  // Every element text should flow around (each modeled as a circle). The
-  // profile photo plus any draggable certificate icons.
-  photoEls: [],
+  // Circular photos and floating certificate icons, plus rectangular blog figures.
+  obstacleEls: [],
   instances: [],
   frame: 0,
   scanFrame: 0,
+  imageGroups: [],
+  imageObserver: null,
+  markdownBodies: new WeakMap(),
 };
 
 // Collect the elements text should avoid: the profile photo and any certificate
@@ -399,23 +421,36 @@ function refreshObstacles() {
   document.querySelectorAll('.cert-icon[data-floating="1"]').forEach((e) => {
     els.push(e);
   });
-  flow.photoEls = els;
+  document.querySelectorAll('.markdown-body .blog-image, .blog-image[data-floating="1"]').forEach((e) => {
+    els.push(e);
+  });
+  flow.obstacleEls = els;
 }
 
-// The obstacle circles (border-radius/inscribed) expressed relative to `el`'s
-// box: for each obstacle, center (cx, cy) and radius (inscribed in its box).
+// Obstacles expressed relative to el: circles have a center/radius, and blog
+// figures have their full rectangular bounds.
 // When `excludeBelts` is set, floating certificate icons are ignored — used by
 // the certificate grid itself so it doesn't reflow around its own popped-out
 // icon (which would drag that icon's card around).
-function photoCirclesRelTo(el, excludeBelts) {
+function obstaclesRelTo(el, excludeBelts) {
   const cr = el.getBoundingClientRect();
   const circles = [];
-  for (let i = 0; i < flow.photoEls.length; i++) {
-    const p = flow.photoEls[i];
+  for (let i = 0; i < flow.obstacleEls.length; i++) {
+    const p = flow.obstacleEls[i];
     if (!p || !p.isConnected) continue;
     if (excludeBelts && p.classList.contains("cert-icon")) continue;
+    if (p.contains(el)) continue;
     const pr = p.getBoundingClientRect();
     if (pr.width <= 0 || pr.height <= 0) continue;
+    if (p.classList.contains("blog-image")) {
+      circles.push({
+        left: pr.left - cr.left,
+        right: pr.right - cr.left,
+        top: pr.top - cr.top,
+        bottom: pr.bottom - cr.top,
+      });
+      continue;
+    }
     circles.push({
       cx: (pr.left + pr.right) / 2 - cr.left,
       cy: (pr.top + pr.bottom) / 2 - cr.top,
@@ -425,12 +460,16 @@ function photoCirclesRelTo(el, excludeBelts) {
   return circles;
 }
 
-// A cache-key fragment summarizing every obstacle circle's rounded geometry, so
+// A cache-key fragment summarizing every obstacle's rounded geometry, so
 // a relayout is skipped only when *no* obstacle (photo or belt) has moved.
-function circlesKey(circles) {
+function obstaclesKey(circles) {
   let k = "";
   for (let i = 0; i < circles.length; i++) {
     const c = circles[i];
+    if (c.left !== undefined) {
+      k += [c.left, c.right, c.top, c.bottom].map((n) => Math.round(n * 10) / 10).join(",") + ";";
+      continue;
+    }
     k +=
       Math.round(c.cx) + "," + Math.round(c.cy) + "," + Math.round(c.radius) + ";";
   }
@@ -439,12 +478,12 @@ function circlesKey(circles) {
 
 // Build a function that, for a band whose top is at `y` and which is
 // `bandHeight` tall, returns the horizontal segment(s) available for content
-// after excluding EVERY obstacle circle's region (plus PHOTO_MARGIN). Each
-// overlapping circle contributes an excluded x-interval; the excluded intervals
+// after excluding every obstacle's region (plus PHOTO_MARGIN). Each
+// overlapping shape contributes an excluded x-interval; the excluded intervals
 // are merged and subtracted from [0, colWidth], leaving the free segments in
 // reading order. Segments narrower than `minGap` are dropped. When nothing
-// overlaps the band (or the row is fully blocked), returns a single full-width
-// segment.
+// overlaps the band, returns a full-width segment. A fully blocked band returns
+// no segments so callers advance vertically without consuming text.
 function buildSegmentsFn(colWidth, circles, bandHeight, minGap) {
   const SINGLE_FULL = [{ x: 0, w: colWidth }];
   return (y) => {
@@ -454,6 +493,14 @@ function buildSegmentsFn(colWidth, circles, bandHeight, minGap) {
     // clamped to the column.
     const excludes = [];
     for (let i = 0; i < circles.length; i++) {
+      const obstacle = circles[i];
+      if (obstacle.left !== undefined) {
+        if (bandBottom <= obstacle.top - PHOTO_MARGIN || y >= obstacle.bottom + PHOTO_MARGIN) continue;
+        const left = Math.max(0, obstacle.left - PHOTO_MARGIN);
+        const right = Math.min(colWidth, obstacle.right + PHOTO_MARGIN);
+        if (right > left) excludes.push([left, right]);
+        continue;
+      }
       const { cx, cy, radius } = circles[i];
       if (radius <= 0) continue;
       const R = radius + PHOTO_MARGIN;
@@ -494,7 +541,6 @@ function buildSegmentsFn(colWidth, circles, bandHeight, minGap) {
     if (colWidth - cursor >= minGap) {
       segs.push({ x: cursor, w: colWidth - cursor });
     }
-    if (segs.length === 0) return SINGLE_FULL;
     return segs;
   };
 }
@@ -511,6 +557,7 @@ function isFullWidthRow(segs, colWidth) {
 // no child *elements* (pure text) so we never clobber nested links/markup.
 function isFlowable(el) {
   if (!el || el.dataset.flowInit === "1") return false;
+  if (el.closest(".markdown-body, .flow-source, .flow-line")) return false;
   // No element children (text-only). Allows whitespace/text nodes only.
   if (el.children && el.children.length > 0) return false;
   // Skip anything inside interactive/structured regions.
@@ -585,7 +632,7 @@ function createInstance(el) {
   const acquireLine = (i) => {
     let node = pool[i];
     if (!node) {
-      node = document.createElement("div");
+      node = document.createElement("span");
       node.className = "flow-line";
       node.style.position = "absolute";
       node.style.whiteSpace = "nowrap";
@@ -604,9 +651,9 @@ function createInstance(el) {
     // (profile photo, draggable belt) is modeled as the circle inscribed in its
     // box; text is excluded from the circular regions (plus a uniform margin
     // measured from the curve), not the square boxes, so lines tuck into corners.
-    const circles = photoCirclesRelTo(el);
+    const circles = obstaclesRelTo(el);
 
-    const key = colWidth + "|" + circlesKey(circles) + "|" + lineHeight;
+    const key = colWidth + "|" + obstaclesKey(circles) + "|" + lineHeight;
 
     // A usable side-gap must fit the widest whole word; otherwise pretext would
     // have to break that word mid-grapheme to fill the gap. We skip gaps
@@ -690,11 +737,9 @@ function createInstance(el) {
     },
     refreshTypography() {
       const t = resolveTypography(el);
-      if (t.font !== font) {
-        font = t.font;
-        prepared = prepareWithSegments(source, font, { whiteSpace });
-        minWordWidth = widestWord(font);
-      }
+      font = t.font;
+      prepared = prepareWithSegments(source, font, { whiteSpace });
+      minWordWidth = widestWord(font);
       if (t.lineHeight !== lineHeight) {
         lineHeight = t.lineHeight;
         poolLineHeight = lineHeight;
@@ -753,12 +798,12 @@ function createChipInstance(container) {
     // The certificate grid ignores floating belt icons as obstacles, so popping
     // a belt out doesn't shove its own (now-empty) card around. Other chip
     // containers (links, tech tags) still flow around the belt.
-    const circles = photoCirclesRelTo(
+    const circles = obstaclesRelTo(
       container,
       container.classList.contains("cert-cards"),
     );
     const key =
-      colWidth + "|" + circlesKey(circles) + "|" + Math.round(rowHeight);
+      colWidth + "|" + obstaclesKey(circles) + "|" + Math.round(rowHeight);
     if (key === lastKey) return;
     lastKey = key;
 
@@ -817,11 +862,484 @@ function createChipInstance(container) {
   };
 }
 
+// Markdown is an inner_html subtree owned by this adapter. Preserve a canonical
+// copy for assistive technology, and render separate, selectable visual lines.
+function prepareMarkdown(root) {
+  root.querySelectorAll(".markdown-body").forEach((body) => {
+    const marker = flow.markdownBodies.get(body);
+    if (marker && marker.parentNode === body) return;
+    // Leptos may reuse the article element when a slug changes and replace only
+    // its inner_html. A fresh first child means the new post needs normalization.
+    delete body.dataset.markdownInit;
+    // Tight Markdown lists contain text directly in <li>. Give each run of
+    // inline children its own block without flattening nested lists.
+    body.querySelectorAll("li").forEach((li) => {
+      let block = null;
+      for (const child of Array.from(li.childNodes)) {
+        if (child.nodeType === Node.ELEMENT_NODE &&
+            child.matches("p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6, figure, hr")) {
+          block = null;
+          continue;
+        }
+        if (!block) {
+          block = document.createElement("div");
+          block.className = "markdown-inline";
+          li.insertBefore(block, child);
+        }
+        block.appendChild(child);
+      }
+    });
+
+    // Split mixed image/text paragraphs with native DOM Ranges. Cloning a Range
+    // retains nested emphasis and links on either side of the image.
+    let image;
+    while ((image = body.querySelector("img:not([data-blog-image])"))) {
+      image.dataset.blogImage = "1";
+      let figure = image.closest("figure");
+      if (!figure) {
+        figure = document.createElement("figure");
+        const block = image.closest("p, h1, h2, h3, h4, h5, h6, .markdown-inline");
+        const link = image.closest("a");
+        const imageLink = link ? link.cloneNode(false) : null;
+        if (block) {
+          const before = document.createRange();
+          before.selectNodeContents(block);
+          before.setEndBefore(image);
+          const after = document.createRange();
+          after.selectNodeContents(block);
+          after.setStartAfter(image);
+          const fragments = [before.cloneContents(), after.cloneContents()];
+          const nodes = fragments.map((fragment) => {
+            if (!fragment.textContent.trim() && !fragment.querySelector("img")) return null;
+            const node = block.cloneNode(false);
+            node.removeAttribute("id");
+            node.appendChild(fragment);
+            return node;
+          });
+          if (imageLink) {
+            imageLink.removeAttribute("id");
+            imageLink.appendChild(image);
+            figure.appendChild(imageLink);
+          } else {
+            figure.appendChild(image);
+          }
+          if (block.id) {
+            (nodes.find(Boolean) || figure).id = block.id;
+          }
+          block.replaceWith(...[nodes[0], figure, nodes[1]].filter(Boolean));
+        } else {
+          image.replaceWith(figure);
+          figure.appendChild(image);
+        }
+      }
+      figure.classList.add("blog-image");
+      const width = image.getAttribute("width");
+      if (width && /^[1-9]\d*$/.test(width)) {
+        figure.style.setProperty("--blog-image-width", width + "px");
+      }
+      // Capture this image, not the loop variable used for subsequent images.
+      const currentImage = image;
+      const onSize = () => {
+        currentImage.style.aspectRatio = currentImage.naturalWidth > 0
+          ? currentImage.naturalWidth + " / " + currentImage.naturalHeight
+          : "4 / 3";
+        scheduleAll();
+      };
+      onSize();
+      image.addEventListener("load", onSize);
+      image.addEventListener("error", onSize);
+    }
+
+    // Each centered image occupies its own row before the following prose.
+    // Keep its group and drag placeholder so moving it does not collapse that
+    // row; Pretext still routes text around the image wherever it is dropped.
+    body.querySelectorAll(".blog-image").forEach((figure) => {
+      const group = document.createElement("div");
+      group.className = "markdown-image-group";
+      figure.before(group);
+      let sibling = figure.nextSibling;
+      group.appendChild(figure);
+      while (sibling && !(sibling.nodeType === Node.ELEMENT_NODE &&
+             sibling.classList.contains("blog-image"))) {
+        const next = sibling.nextSibling;
+        group.appendChild(sibling);
+        sibling = next;
+      }
+      flow.imageGroups.push({ group, figure });
+      flow.imageObserver?.observe(figure);
+      makeFloatingDraggable(figure, { dockOnDrop: false });
+    });
+    body.dataset.markdownInit = "1";
+    flow.markdownBodies.set(body, body.firstElementChild);
+  });
+}
+
+async function copyCodeText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_) {
+      // Fall back when clipboard permissions are unavailable.
+    }
+  }
+  // The WireGuard test site uses HTTP, where the modern Clipboard API is not
+  // available. Keep this fallback inside the user's button click.
+  const textarea = document.createElement("textarea");
+  textarea.value = text || " ";
+  textarea.readOnly = true;
+  textarea.tabIndex = -1;
+  textarea.setAttribute("aria-hidden", "true");
+  textarea.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none";
+  const focused = document.activeElement;
+  const selection = window.getSelection();
+  const ranges = selection ? Array.from({ length: selection.rangeCount },
+    (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+  const onCopy = (event) => {
+    if (event.clipboardData) {
+      event.clipboardData.setData("text/plain", text);
+      event.preventDefault();
+    }
+  };
+  document.body.appendChild(textarea);
+  document.addEventListener("copy", onCopy, true);
+  try {
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    if (!document.execCommand("copy")) throw new Error("Copy failed");
+  } finally {
+    document.removeEventListener("copy", onCopy, true);
+    textarea.remove();
+    if (focused?.isConnected) focused.focus({ preventScroll: true });
+    if (selection) {
+      selection.removeAllRanges();
+      for (const range of ranges) {
+        if (range.commonAncestorContainer.isConnected) selection.addRange(range);
+      }
+    }
+  }
+}
+
+function addCodeCopyButton(el, source) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "code-copy-button";
+  button.textContent = "Copy";
+  button.setAttribute("aria-label", "Copy code");
+  const status = document.createElement("span");
+  status.className = "code-copy-status";
+  status.setAttribute("role", "status");
+  let copying = false;
+  let resetTimer;
+  button.addEventListener("click", async () => {
+    if (copying) return;
+    copying = true;
+    clearTimeout(resetTimer);
+    status.textContent = "";
+    try {
+      await copyCodeText((source.querySelector("code") || source).textContent);
+      button.textContent = "Copied!";
+      status.textContent = "Code copied.";
+    } catch (_) {
+      button.textContent = "Copy failed";
+      status.textContent = "Could not copy. Select the code and copy it manually.";
+    } finally {
+      copying = false;
+      resetTimer = setTimeout(() => {
+        button.textContent = "Copy";
+        status.textContent = "";
+      }, 2000);
+    }
+  });
+  el.classList.add("code-copy-enabled");
+  el.append(button, status);
+}
+
+function createMarkdownInstance(el) {
+  const api = flow.pretext;
+  const isCode = el.tagName === "PRE";
+  const source = document.createElement("span");
+  source.className = "flow-source";
+  source.append(...Array.from(el.childNodes));
+  el.appendChild(source);
+  el.style.position = "relative";
+  el.dataset.flowInit = "1";
+  if (isCode) addCodeCopyButton(el, source);
+  const links = Array.from(source.querySelectorAll("a"));
+  const pool = [];
+  let chunks = [];
+  let lineHeight;
+  let lastKey = "";
+
+  function refreshTypography() {
+    lineHeight = resolveTypography(el).lineHeight;
+    if (isCode) {
+      const style = resolveTypography(source.querySelector("code") || el);
+      const text = source.textContent.replace(/\n$/, "");
+      // Keep server-generated token colors while measuring the whole code line
+      // with Pretext. Token boundaries must not change wrapping or tab stops.
+      const tokens = [];
+      const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+      let offset = 0;
+      let node;
+      while ((node = walker.nextNode())) {
+        const end = offset + node.textContent.length;
+        if (end > offset) tokens.push({ start: offset, end,
+          color: getComputedStyle(node.parentElement).color });
+        offset = end;
+      }
+      let start = 0;
+      let tokenIndex = 0;
+      chunks = text.split("\n").map((line) => {
+        const end = start + line.length;
+        while (tokenIndex < tokens.length && tokens[tokenIndex].end <= start) tokenIndex++;
+        const colors = [];
+        for (let i = tokenIndex; i < tokens.length && tokens[i].start < end; i++) {
+          colors.push({ start: Math.max(start, tokens[i].start) - start,
+            end: Math.min(end, tokens[i].end) - start, color: tokens[i].color });
+        }
+        const prepared = api.prepareWithSegments(line, style.font, { whiteSpace: "pre-wrap" });
+        let position = 0;
+        const segmentOffsets = prepared.segments.map((segment) => {
+          const index = position;
+          position += segment.length;
+          return index;
+        });
+        segmentOffsets.push(position);
+        start = end + 1;
+        return { empty: line === "", font: style.font, prepared, colors,
+          segmentOffsets, graphemeOffsets: new Map() };
+      });
+    } else {
+      const groups = [[]];
+      function visit(node, ancestors) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const typography = resolveTypography(node.parentElement);
+          const cs = getComputedStyle(node.parentElement);
+          lineHeight = Math.max(lineHeight, typography.lineHeight);
+          groups[groups.length - 1].push({
+            text: node.textContent,
+            font: typography.font,
+            letterSpacing: parseFloat(cs.letterSpacing) || 0,
+            ancestors,
+          });
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          if (node.tagName === "BR") {
+            groups.push([]);
+          } else {
+            for (const child of node.childNodes) visit(child, [...ancestors, node]);
+          }
+        }
+      }
+      for (const child of source.childNodes) visit(child, []);
+      chunks = groups.map((items) => ({
+        items,
+        empty: !items.some((item) => item.text.trim()),
+        prepared: api.prepareRichInline(items),
+      }));
+    }
+    lastKey = "";
+  }
+  refreshTypography();
+
+  function nextLine(chunk, cursor, width) {
+    return isCode
+      ? api.layoutNextLineRange(chunk.prepared, cursor, width)
+      : api.layoutNextRichInlineLineRange(chunk.prepared, width, cursor);
+  }
+
+  function renderCodeFragments(line, node) {
+    const chunk = line.chunk;
+    const cursor = line.content.start;
+    let start = chunk.segmentOffsets[cursor.segmentIndex];
+    if (cursor.graphemeIndex > 0) {
+      let offsets = chunk.graphemeOffsets.get(cursor.segmentIndex);
+      if (!offsets) {
+        const segment = chunk.prepared.segments[cursor.segmentIndex];
+        offsets = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(segment),
+          (part) => part.index);
+        offsets.push(segment.length);
+        chunk.graphemeOffsets.set(cursor.segmentIndex, offsets);
+      }
+      start += offsets[cursor.graphemeIndex];
+    }
+    const end = start + line.content.text.length;
+    const fragment = document.createDocumentFragment();
+    for (const token of chunk.colors) {
+      const from = Math.max(start, token.start);
+      const to = Math.min(end, token.end);
+      if (from >= to) continue;
+      const span = document.createElement("span");
+      span.style.color = token.color;
+      span.textContent = line.content.text.slice(from - start, to - start);
+      fragment.appendChild(span);
+    }
+    node.replaceChildren(fragment);
+  }
+
+  function focusedLink() {
+    return links.indexOf(document.activeElement);
+  }
+
+  function mirrorFocus() {
+    const index = focusedLink();
+    const fragments = el.querySelectorAll("[data-flow-link]");
+    fragments.forEach((link) => link.classList.toggle("flow-link-focus",
+      Number(link.dataset.flowLink) === index));
+  }
+  source.addEventListener("focusin", () => {
+    mirrorFocus();
+    const fragment = el.querySelector('[data-flow-link="' + focusedLink() + '"]');
+    if (fragment) {
+      const rect = fragment.getBoundingClientRect();
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        fragment.scrollIntoView({ block: "nearest" });
+      }
+    }
+  });
+  source.addEventListener("focusout", () => {
+    el.querySelectorAll(".flow-link-focus").forEach((node) => node.classList.remove("flow-link-focus"));
+  });
+
+  function renderFragments(line, node) {
+    const fragment = document.createDocumentFragment();
+    for (const part of line.content.fragments) {
+      const item = line.chunk.items[part.itemIndex];
+      const run = document.createElement("span");
+      if (part.gapBefore > 0) {
+        const gap = document.createElement("span");
+        gap.textContent = " ";
+        gap.style.display = "inline-block";
+        gap.style.width = part.gapBefore + "px";
+        fragment.appendChild(gap);
+      } else if (part.gapBefore < 0) {
+        run.style.marginLeft = part.gapBefore + "px";
+      }
+      let parent = run;
+      for (const ancestor of item.ancestors) {
+        const clone = ancestor.cloneNode(false);
+        clone.removeAttribute("id");
+        if (clone.tagName === "A") {
+          const index = links.indexOf(ancestor);
+          clone.tabIndex = -1;
+          clone.dataset.flowLink = String(index);
+          clone.addEventListener("pointerdown", (event) => {
+            // Keep keyboard/screen-reader focus on the one canonical link.
+            event.preventDefault();
+            links[index].focus({ preventScroll: true });
+          });
+        }
+        parent.appendChild(clone);
+        parent = clone;
+      }
+      // Pretext excludes hanging end-of-line spaces from fit width. CSS normal
+      // whitespace suppresses them too; omit them from the visual fragment.
+      parent.textContent = part === line.content.fragments.at(-1)
+        ? part.text.replace(/[ \t\r\n]+$/, "") : part.text;
+      fragment.appendChild(run);
+    }
+    node.replaceChildren(fragment);
+  }
+
+  function relayout() {
+    const cs = getComputedStyle(el);
+    const left = parseFloat(cs.paddingLeft) || 0;
+    const right = parseFloat(cs.paddingRight) || 0;
+    const top = parseFloat(cs.paddingTop) || 0;
+    const bottom = parseFloat(cs.paddingBottom) || 0;
+    const width = el.clientWidth - left - right;
+    if (width <= 0) return;
+    const obstacles = obstaclesRelTo(el).map((obstacle) => obstacle.left !== undefined
+      ? { left: obstacle.left - left - el.clientLeft, right: obstacle.right - left - el.clientLeft,
+          top: obstacle.top - top - el.clientTop, bottom: obstacle.bottom - top - el.clientTop }
+      : { cx: obstacle.cx - left - el.clientLeft, cy: obstacle.cy - top - el.clientTop,
+          radius: obstacle.radius });
+    const key = width + "|" + obstaclesKey(obstacles) + "|" + lineHeight;
+    if (key === lastKey) return;
+    const segmentsForY = buildSegmentsFn(width, obstacles, lineHeight, MIN_LINE_WIDTH);
+    const lines = [];
+    let y = 0;
+    const obstacleBottom = Math.max(0, ...obstacles.map((o) =>
+      o.bottom !== undefined ? o.bottom + PHOTO_MARGIN : o.cy + o.radius + PHOTO_MARGIN));
+    // A source-based bound detects stalled layout without silently truncating
+    // long posts; blocked bands can only persist through the finite obstacles.
+    const maxRows = Math.ceil(obstacleBottom / lineHeight) + source.textContent.length + chunks.length + 1;
+    let rows = 0;
+    for (const chunk of chunks) {
+      if (chunk.empty) {
+        y += lineHeight;
+        continue;
+      }
+      let cursor = isCode ? { segmentIndex: 0, graphemeIndex: 0 } : undefined;
+      let done = false;
+      while (!done) {
+        if (++rows > maxRows) throw new Error("Markdown layout made no progress");
+        for (const segment of segmentsForY(y)) {
+          const range = nextLine(chunk, cursor, segment.w);
+          if (!range) {
+            done = true;
+            break;
+          }
+          const content = isCode
+            ? api.materializeLineRange(chunk.prepared, range)
+            : api.materializeRichInlineLineRange(chunk.prepared, range);
+          lines.push({ x: segment.x + left, y: y + top, content, chunk });
+          cursor = range.end;
+          if (!nextLine(chunk, cursor, Infinity)) {
+            done = true;
+            break; // A hard break advances a row, including two-gap rows.
+          }
+        }
+        y += lineHeight;
+      }
+    }
+    // Prepare every line before hiding the accessible, readable source.
+    lines.forEach((line, index) => {
+      let node = pool[index];
+      if (!node) {
+        node = document.createElement("span");
+        node.className = "flow-line";
+        node.setAttribute("aria-hidden", "true");
+        node.style.position = "absolute";
+        pool.push(node);
+        el.appendChild(node);
+      }
+      node.style.display = "";
+      node.style.top = line.y + "px";
+      node.style.left = line.x + "px";
+      node.style.lineHeight = lineHeight + "px";
+      if (isCode) {
+        node.style.font = line.chunk.font;
+        node.style.lineHeight = lineHeight + "px";
+        renderCodeFragments(line, node);
+      } else {
+        renderFragments(line, node);
+      }
+    });
+    for (let i = lines.length; i < pool.length; i++) pool[i].style.display = "none";
+    el.style.height = y + top + bottom + el.clientTop * 2 + "px";
+    el.classList.add("markdown-flow-ready");
+    mirrorFocus();
+    lastKey = key;
+  }
+
+  return { el, isConnected: () => el.isConnected && source.parentNode === el, relayout, refreshTypography };
+}
+
 // Reflow every instance, coalesced to one animation frame.
 function scheduleAll() {
   if (flow.frame) return;
   flow.frame = requestAnimationFrame(() => {
     flow.frame = 0;
+    flow.imageGroups = flow.imageGroups.filter(({ group, figure }) => {
+      if (!group.isConnected) {
+        flow.imageObserver?.unobserve(figure);
+        return false;
+      }
+      const height = Math.ceil(figure.getBoundingClientRect().height + PHOTO_MARGIN) + "px";
+      if (group.style.minHeight !== height) group.style.minHeight = height;
+      return true;
+    });
     for (let i = 0; i < flow.instances.length; i++) {
       flow.instances[i].relayout();
     }
@@ -832,6 +1350,13 @@ function scheduleAll() {
 // have left the DOM (e.g. after a client-side route change). Idempotent.
 function scan(root) {
   let added = 0;
+  prepareMarkdown(root);
+  root.querySelectorAll(".markdown-body p, .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6, .markdown-body .markdown-inline, .markdown-body pre").forEach((el) => {
+    if (el.dataset.flowInit === "1" || el.closest(".flow-source, .flow-line")) return;
+    if ((!el.textContent.trim() && el.tagName !== "PRE") || el.querySelector("img")) return;
+    flow.instances.push(createMarkdownInstance(el));
+    added += 1;
+  });
   // Prose text elements.
   root.querySelectorAll(FLOW_SELECTOR).forEach((el) => {
     if (!isFlowable(el)) return;
@@ -851,10 +1376,13 @@ function scan(root) {
     }
   });
   flow.instances = flow.instances.filter((i) => i.isConnected());
+  // Earlier blocks can change the vertical position of later blocks. Layout
+  // them in document order so each obstacle calculation sees the final offset.
+  flow.instances.sort((a, b) => a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
   // Keep the obstacle set current: certificate icons may have been added by a
   // route change (or dropped from the DOM).
   refreshObstacles();
-  if (added > 0) scheduleAll();
+  if (added > 0 || flow.imageGroups.length > 0) scheduleAll();
 }
 
 function scheduleScan(root) {
@@ -873,6 +1401,7 @@ export function setupAllTextFlow() {
       flow.pretext = pretext;
       refreshObstacles();
       const root = document.querySelector("main.content") || document.body;
+      flow.imageObserver = new ResizeObserver(scheduleAll);
 
       scan(root);
 
@@ -909,6 +1438,7 @@ export function setupAllTextFlow() {
 
       if (document.fonts && document.fonts.ready) {
         document.fonts.ready.then(() => {
+          pretext.clearCache();
           for (let i = 0; i < flow.instances.length; i++) {
             flow.instances[i].refreshTypography();
           }
