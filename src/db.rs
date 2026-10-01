@@ -1,7 +1,7 @@
 //! SQLite database access layer (server-only).
 //!
-//! This module owns the connection pool and the schema bootstrap. It backs the
-//! dynamic collections (blog posts, projects) and the weather cache. Static
+//! This module owns the connection pool, schema bootstrap, blog post queries,
+//! and weather cache storage. Static
 //! presentation content (the About page's intro, certificates, technologies,
 //! etc.) lives in the markup, not here.
 

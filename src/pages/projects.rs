@@ -1,7 +1,6 @@
 use leptos::prelude::*;
 
-/// Projects tab. Project entries will be loaded from SQLite via a server
-/// function later; for now this renders the framework with a placeholder.
+/// Projects tab placeholder.
 #[component]
 pub fn ProjectsPage() -> impl IntoView {
     view! {

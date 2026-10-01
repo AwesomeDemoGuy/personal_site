@@ -4,7 +4,7 @@
 # Build this image for the SAME CPU architecture as where it will run. Compiling
 # Rust/LLVM under QEMU emulation (i.e. building for a foreign --platform) is slow
 # and often crashes with "qemu: ... signal: aborted (core dumped)".
-#   * amd64 server  -> build on amd64:  docker build --platform linux/amd64 .
+#   * amd64 server  -> build on amd64:  podman build --platform linux/amd64 .
 #   * arm64 server  -> build on arm64 hardware (the server itself or an arm64
 #                      CI/cloud builder). Do NOT cross-build via QEMU.
 
@@ -80,11 +80,10 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 COPY . .
 
 # Vendor the real pretext library into public/js/pretext.js as a single ESM
-# bundle (overwrites the fallback stub). Runs before the Leptos build so the
-# bundled module is picked up by wasm-bindgen.
+# bundle before the Leptos build, so wasm-bindgen picks up the generated module.
 RUN ./scripts/vendor-pretext.sh
 
-# Produce an optimized SSR binary + hashed site assets under target/site. The
+# Produce an optimized SSR binary + site assets under target/site. The
 # same cache mounts as the cook step above are reused here, so the cooked
 # dependencies are already compiled and only our own crate rebuilds. Because
 # `target/` is a cache mount (its contents are NOT part of the image layer), the

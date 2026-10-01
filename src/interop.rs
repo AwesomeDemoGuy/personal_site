@@ -1,20 +1,19 @@
 //! JavaScript interop layer via `wasm-bindgen`.
 //!
-//! All browser-side behavior for the profile photo lives in
-//! `public/js/interop.js`:
+//! Browser behavior for draggable photos, certificate icons, and blog images
+//! lives in `public/js/interop.js`:
 //!   1. `make_draggable` — drag-to-move behavior for the profile photo.
-//!   2. `setup_all_text_flow` — uses the pretext layout library to reflow ALL
-//!      prose text on every page around the photo's circular shape, so the text
-//!      is displaced as the photo is dragged (pretext use case #2). It
-//!      auto-discovers text blocks under the main content region and re-scans
-//!      on client-side route changes.
+//!   2. `make_floating_draggable` — detaches nested images when dragged.
+//!   3. `setup_all_text_flow` — uses Pretext to reflow prose and Markdown around
+//!      circular photos and rectangular blog images. It discovers text blocks
+//!      under the main content region and re-scans on client-side route changes.
 //!
 //! `interop.js` loads pretext itself via a dynamic `import('/js/pretext.js')`,
 //! so the (per-drag-frame) layout hot path stays in JS and never crosses the
 //! wasm boundary.
 //!
-//! Both are no-ops on the server build; the bindings only compile under the
-//! `hydrate` feature where wasm-bindgen and web-sys are available.
+//! The bindings only compile under the `hydrate` feature where wasm-bindgen
+//! and web-sys are available.
 
 #[cfg(feature = "hydrate")]
 mod bindings {

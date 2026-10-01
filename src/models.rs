@@ -43,13 +43,3 @@ pub struct RenderedBlogPost {
     pub title: String,
     pub html: String,
 }
-
-/// A portfolio project entry.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Project {
-    pub id: i64,
-    pub name: String,
-    pub description: String,
-    /// Optional link to a repo or live site.
-    pub url: Option<String>,
-}

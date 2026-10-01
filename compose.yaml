@@ -1,6 +1,6 @@
-# Docker Compose for the personal site.
-# Build: docker compose build   (or: podman-compose build)
-# Run:   docker compose up       (or: podman-compose up)
+# Podman Compose for the personal site.
+# Build: podman-compose -p personal_site -f compose.yaml build
+# Run:   podman-compose -p personal_site -f compose.yaml up -d
 #
 # Build caching: the Dockerfile uses cargo-chef plus BuildKit `--mount=type=cache`
 # mounts (cargo registry/git + the compiled target/ dir), so rebuilds reuse
@@ -47,4 +47,3 @@ networks:
 
 volumes:
   db-data:
-

@@ -2,7 +2,7 @@
 
 A minimalistic, dark-mode personal website built with Rust and
 [Leptos](https://leptos.dev) (full-stack SSR + hydration), backed by SQLite and
-served from Docker.
+served with Podman.
 
 ## Features
 
@@ -23,7 +23,7 @@ served from Docker.
 | Database       | SQLite (SQLx)                           |
 | JS interop     | wasm-bindgen                            |
 | Build tool     | cargo-leptos                            |
-| Containerized  | Docker / Docker Compose                 |
+| Containerized  | Podman / podman-compose                 |
 
 ## Project layout
 
@@ -32,8 +32,9 @@ src/
   main.rs              Server entry: Axum + DB init + Leptos routes
   lib.rs               Hydration entry + module wiring
   app.rs               Router, document shell, header (photo + tabs), footer
-  models.rs            Shared types: BlogPost, Project, Certificate, Technology
+  models.rs            Blog post, index summary, and rendered HTML types
   db.rs                SQLite pool + schema migration (server-only)
+  markdown.rs          Markdown rendering, sanitization, and code highlighting
   interop.rs           wasm-bindgen bindings (draggable photo + pretext)
   components/photo.rs  DraggablePhoto component
   pages/               about.rs (default), blog.rs, projects.rs
@@ -46,14 +47,15 @@ scripts/
   vendor-pretext.sh    Bundles the real pretext library into public/js/pretext.js
 ```
 
-## Running with Docker (recommended)
+## Running with Podman
 
 ```bash
-docker compose up --build
+podman-compose -p personal_site -f compose.yaml up -d --build
 ```
 
 The site is served at http://localhost:31337. SQLite data persists in the
-`db-data` Docker volume.
+`personal_site_db-data` volume. Use the same Compose project name for subsequent
+updates to keep that database.
 
 ## Blog posts
 
@@ -72,16 +74,30 @@ INSERT INTO blog_posts (title, slug, body) VALUES (
 
 ![Photo](/assets/me.jpg)
 
-This paragraph flows beside the photo after the page hydrates.'
+Drag the photo over this paragraph to see the text flow around it.'
 );
 ```
 
 Images can use paths under `public/assets`, referenced as `/assets/...` in the
 Markdown. Standalone images become figures; images within prose are separated
 into figures by the browser adapter. Figures start centered on their own line
-and can be dragged with a mouse or touch. Pretext wraps text around their
+and can be dragged with a mouse. On touchscreens, press and hold an image for
+450 ms until its outline appears, then drag it. Ordinary swipes over images
+scroll the page. This also applies to the profile photo and certificate icons.
+The page stays locked in place during a held drag and resumes scrolling on release.
+Pretext wraps text around their
 rectangular bounds when moved into prose, and around any draggable photos.
 The layout also updates when an image loads or the viewport changes.
+Dragging an image out of its original row collapses that space, allowing the
+following content to move up. Drop it near the center of its original row to snap
+it back into place. Navigating also restores images to their original rows.
+
+Dragging applies the latest pointer position once per animation frame. Only text
+whose wrapping changes rebuilds its visible fragments; distant blocks reuse
+their layout. Obstacle bounds are measured once per frame, image sizes update
+through `ResizeObserver`, and generated text fragments do not trigger article
+rescans. Markdown parsing and highlighting remain on the server, while pointer
+movement and text wrapping stay in the browser for immediate feedback.
 
 Set an image width in pixels by appending `{width=629}` (or `{width=629px}`):
 
@@ -115,4 +131,5 @@ disabled, posts remain readable using their server-rendered HTML.
 
 After changing the Pretext bundle entrypoints, run `scripts/vendor-pretext.sh`
 before building. It bundles the pinned package's regular and rich-inline APIs
-into the existing `public/js/pretext.js` file. Docker does this automatically.
+into the existing `public/js/pretext.js` file. The container build does this
+automatically.

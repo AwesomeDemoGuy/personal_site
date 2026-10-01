@@ -1,8 +1,8 @@
-// Browser interop for the profile photo: drag-to-move + pretext-driven text
-// flow (text displaces around the photo as you drag it).
+// Browser interop for draggable photos, certificate icons, and blog images,
+// with Pretext text flow around their shapes.
 //
-// Exposed to Rust via wasm-bindgen (see src/interop.rs). Uses Pointer Events so
-// it works for both mouse and touch.
+// Exposed to Rust via wasm-bindgen (see src/interop.rs). Mouse dragging starts
+// immediately; touch dragging requires a hold so ordinary swipes scroll.
 //
 // The text-flow layout is computed by the pretext library
 // (https://github.com/chenglou/pretext), use case #2 ("lay out the paragraph
@@ -13,6 +13,14 @@
 // snippets directory.
 
 const PHOTO_MOVE_EVENT = "photomove";
+
+// Pointer events can arrive faster than the display refreshes. Move each image
+// once per frame, immediately before the text-flow pass for that same frame.
+const pendingMoves = new Map();
+function queueDragMove(element, x, y) {
+  pendingMoves.set(element, { x, y });
+  scheduleAll();
+}
 
 // ---------------------------------------------------------------------------
 // Draggable reset registry + navigation hook
@@ -68,6 +76,173 @@ function onNavigate(cb) {
 // Draggable photo
 // ---------------------------------------------------------------------------
 
+let touchScrollLock = null;
+
+function pageScrollPosition() {
+  return touchScrollLock || { x: window.scrollX, y: window.scrollY };
+}
+
+// Cancelling touchmove alone does not reliably stop mobile viewport scrolling.
+// Pin the body at its current viewport position for a held drag. Keep using the
+// saved document offset when positioning floating images while the body is fixed.
+function lockTouchScroll() {
+  const body = document.body;
+  const root = document.documentElement;
+  const position = { x: window.scrollX, y: window.scrollY };
+  const width = body.getBoundingClientRect().width;
+  const saved = [];
+  const set = (element, property, value) => {
+    saved.push({ element, property, value: element.style.getPropertyValue(property),
+      priority: element.style.getPropertyPriority(property) });
+    element.style.setProperty(property, value);
+  };
+  touchScrollLock = position;
+  set(root, "scroll-behavior", "auto");
+  set(root, "overflow-anchor", "none");
+  set(root, "overflow", "hidden");
+  set(root, "touch-action", "none");
+  set(body, "position", "fixed");
+  set(body, "top", `${-position.y}px`);
+  set(body, "left", `${-position.x}px`);
+  set(body, "width", `${width}px`);
+
+  return () => {
+    // Restore the body before scrolling, with anchoring and smooth scrolling
+    // still disabled so neither can adjust the restored viewport position.
+    for (const entry of saved.slice().reverse()) {
+      if (entry.element === root &&
+        (entry.property === "scroll-behavior" || entry.property === "overflow-anchor")) continue;
+      if (entry.value) entry.element.style.setProperty(entry.property, entry.value, entry.priority);
+      else entry.element.style.removeProperty(entry.property);
+    }
+    touchScrollLock = null;
+    window.scrollTo(position.x, position.y);
+    // Let the queued text-flow pass finish before enabling scroll anchoring.
+    requestAnimationFrame(() => {
+      for (const entry of saved) {
+        if (entry.element !== root ||
+          (entry.property !== "scroll-behavior" && entry.property !== "overflow-anchor")) continue;
+        if (entry.value) entry.element.style.setProperty(entry.property, entry.value, entry.priority);
+        else entry.element.style.removeProperty(entry.property);
+      }
+    });
+  };
+}
+
+// Keep native scrolling/pinch zoom available until a stationary touch has been
+// held. Changing touch-action after the hold would not affect that gesture, so
+// use a non-passive touchmove listener to claim only an activated touch drag.
+function bindImageDrag(element, { start, move, end }) {
+  const HOLD_MS = 450;
+  const HOLD_SLOP = 8;
+  let pointerId = null;
+  let touchId = null;
+  let holdTimer = null;
+  let touchActive = false;
+  let touchStart = null;
+  let suppressClickUntil = 0;
+  let unlockScroll = null;
+
+  const reset = () => {
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    pointerId = null;
+    touchId = null;
+    touchActive = false;
+    touchStart = null;
+    element.classList.remove("touch-drag-ready");
+    window.removeEventListener("pointermove", pointerMove);
+    window.removeEventListener("pointerup", pointerEnd);
+    window.removeEventListener("pointercancel", pointerEnd);
+    window.removeEventListener("touchstart", extraTouch);
+    window.removeEventListener("touchmove", touchMove);
+    window.removeEventListener("touchend", touchEnd);
+    window.removeEventListener("touchcancel", touchEnd);
+    window.removeEventListener("blur", cancel);
+    unlockScroll?.();
+    unlockScroll = null;
+  };
+  const cancel = () => {
+    const active = pointerId !== null || touchActive;
+    if (touchActive) suppressClickUntil = performance.now() + 400;
+    try {
+      if (active) end();
+    } finally {
+      reset();
+    }
+  };
+  const pointerMove = (event) => {
+    if (event.pointerId === pointerId) move(event);
+  };
+  const pointerEnd = (event) => {
+    if (event.pointerId === pointerId) cancel();
+  };
+  const extraTouch = (event) => {
+    if (event.touches.length !== 1) cancel();
+  };
+  const touchMove = (event) => {
+    const touch = Array.from(event.touches).find(t => t.identifier === touchId);
+    if (!touch || event.touches.length !== 1 || !event.cancelable) {
+      cancel();
+      return;
+    }
+    if (!touchActive) {
+      if (Math.hypot(touch.clientX - touchStart.clientX,
+        touch.clientY - touchStart.clientY) > HOLD_SLOP) cancel();
+      return;
+    }
+    event.preventDefault();
+    move({ clientX: touch.clientX, clientY: touch.clientY,
+      preventDefault: () => event.preventDefault() });
+  };
+  const touchEnd = (event) => {
+    if (!Array.from(event.changedTouches).some(t => t.identifier === touchId)) return;
+    if (touchActive && event.cancelable) event.preventDefault();
+    cancel();
+  };
+
+  element.style.touchAction = "auto";
+  element.addEventListener("pointerdown", event => {
+    if (event.pointerType === "touch" || event.button !== 0 ||
+      event.isPrimary === false || pointerId !== null || touchId !== null) return;
+    pointerId = event.pointerId;
+    window.addEventListener("pointermove", pointerMove);
+    window.addEventListener("pointerup", pointerEnd);
+    window.addEventListener("pointercancel", pointerEnd);
+    window.addEventListener("blur", cancel);
+    start(event);
+  });
+  element.addEventListener("touchstart", event => {
+    if (event.touches.length !== 1 || touchId !== null || pointerId !== null) return;
+    const touch = event.changedTouches[0];
+    touchId = touch.identifier;
+    touchStart = { clientX: touch.clientX, clientY: touch.clientY };
+    window.addEventListener("touchstart", extraTouch, { passive: true });
+    window.addEventListener("touchmove", touchMove, { passive: false });
+    window.addEventListener("touchend", touchEnd, { passive: false });
+    window.addEventListener("touchcancel", touchEnd, { passive: true });
+    window.addEventListener("blur", cancel);
+    holdTimer = setTimeout(() => {
+      if (!element.isConnected) { cancel(); return; }
+      touchActive = true;
+      unlockScroll = lockTouchScroll();
+      element.classList.add("touch-drag-ready");
+      start({ ...touchStart, preventDefault() {} });
+    }, HOLD_MS);
+  }, { passive: true });
+  element.addEventListener("contextmenu", event => {
+    if (touchId !== null || performance.now() < suppressClickUntil) event.preventDefault();
+  });
+  element.addEventListener("click", event => {
+    if (performance.now() < suppressClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
+  element.addEventListener("dragstart", event => event.preventDefault());
+  return reset;
+}
+
 export function makeDraggable(element) {
   if (!element || element.dataset.draggableInit === "1") return;
   element.dataset.draggableInit = "1";
@@ -81,9 +256,7 @@ export function makeDraggable(element) {
   let baseY = 0;
 
   const apply = (x, y) => {
-    element.style.transform = `translate(${x}px, ${y}px)`;
-    // Notify any text-flow listeners that the photo rectangle changed.
-    document.dispatchEvent(new CustomEvent(PHOTO_MOVE_EVENT));
+    queueDragMove(element, x, y);
   };
 
   const onPointerDown = (e) => {
@@ -93,7 +266,6 @@ export function makeDraggable(element) {
     baseX = offsetX;
     baseY = offsetY;
     element.classList.add("dragging");
-    element.setPointerCapture(e.pointerId);
     e.preventDefault();
   };
 
@@ -104,26 +276,23 @@ export function makeDraggable(element) {
     apply(offsetX, offsetY);
   };
 
-  const onPointerUp = (e) => {
+  const onPointerUp = () => {
     if (!dragging) return;
     dragging = false;
     element.classList.remove("dragging");
-    try {
-      element.releasePointerCapture(e.pointerId);
-    } catch (_) {
-      /* ignore */
-    }
   };
 
-  element.style.touchAction = "none";
   element.style.cursor = "grab";
-  element.addEventListener("pointerdown", onPointerDown);
-  element.addEventListener("pointermove", onPointerMove);
-  element.addEventListener("pointerup", onPointerUp);
-  element.addEventListener("pointercancel", onPointerUp);
+  const resetGesture = bindImageDrag(element, {
+    start: onPointerDown, move: onPointerMove, end: onPointerUp,
+  });
 
   // Restore to the default (untranslated) position on navigation.
   registerDragReset(element, () => {
+    resetGesture();
+    pendingMoves.delete(element);
+    dragging = false;
+    element.classList.remove("dragging");
     offsetX = 0;
     offsetY = 0;
     element.style.transform = "";
@@ -155,36 +324,48 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
   let baseY = 0;
   let offsetX = 0;
   let offsetY = 0;
-  let placeholder = null; // holds the icon's slot in the card while it floats
+  let placeholder = null; // icon slot, or an invisible blog-image return marker
   let card = null; // the card element the icon was popped out of
 
   // Detach from the card/link and re-anchor to <body> at the same on-screen
-  // position (document coords), so subsequent card reflows don't move it. A
-  // same-size placeholder is left behind so the card keeps its dimensions, and
-  // is remembered so the icon can dock back into the same slot later.
+  // position (document coords), so subsequent card reflows don't move it.
+  // Certificate icons keep their card slot; blog images leave only a comment
+  // marking their return position, so the article closes up behind them.
   const popOut = () => {
     const rect = element.getBoundingClientRect();
+    const scroll = pageScrollPosition();
+    const left = rect.left + scroll.x;
+    const top = rect.top + scroll.y;
+    const isBlogImage = element.classList.contains("blog-image");
     card = element.parentNode;
     if (card) {
-      placeholder = document.createElement("div");
-      if (element.classList.contains("blog-image")) {
-        placeholder.className = "blog-image-placeholder";
-        placeholder.style.setProperty("--blog-image-width", element.style.getPropertyValue("--blog-image-width"));
+      if (isBlogImage) {
+        placeholder = document.createComment("blog-image-origin");
+      } else {
+        placeholder = document.createElement("div");
+        placeholder.style.width = `${rect.width}px`;
+        placeholder.style.height = `${rect.height}px`;
+        placeholder.style.flex = "0 0 auto";
+        placeholder.setAttribute("aria-hidden", "true");
       }
-      placeholder.style.width = `${rect.width}px`;
-      placeholder.style.height = `${rect.height}px`;
-      placeholder.style.flex = "0 0 auto";
-      placeholder.setAttribute("aria-hidden", "true");
       card.insertBefore(placeholder, element);
     }
     element.style.position = "absolute";
     element.style.margin = "0";
-    element.style.left = `${rect.left + window.scrollX}px`;
-    element.style.top = `${rect.top + window.scrollY}px`;
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
     element.style.width = `${rect.width}px`;
     element.style.height = `${rect.height}px`;
     element.style.zIndex = "50";
     document.body.appendChild(element);
+    if (isBlogImage && card) {
+      card.classList.toggle("markdown-image-group-empty", card.children.length === 0);
+      // Collapsing the source row can adjust browser scroll anchoring. Keep the
+      // image at the same viewport position as it detaches from that row.
+      const currentScroll = pageScrollPosition();
+      element.style.left = `${rect.left + currentScroll.x}px`;
+      element.style.top = `${rect.top + currentScroll.y}px`;
+    }
     popped = true;
     // Now free-floating: mark it so it counts as a text-flow obstacle, and
     // register it immediately (don't wait for the next scan) so text starts
@@ -200,12 +381,22 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
     const b = element.getBoundingClientRect();
     const bx = (b.left + b.right) / 2;
     const by = (b.top + b.bottom) / 2;
+    if (element.classList.contains("blog-image")) {
+      // The original row has collapsed, so its actual height is no longer a
+      // useful drop target (and may contain all the following prose). Treat
+      // the centered image slot at the group's start as a virtual return area.
+      const width = Math.min(b.width, c.width);
+      const height = b.height * width / b.width;
+      return Math.abs(bx - (c.left + c.right) / 2) <= Math.max(24, width / 4) &&
+        Math.abs(by - (c.top + height / 2)) <= Math.max(24, height / 4);
+    }
     return bx >= c.left && bx <= c.right && by >= c.top && by <= c.bottom;
   };
 
   // Return the icon to its card slot and clear all floating state, so it's tied
   // to the card again (and behaves as a normal link).
   const dock = () => {
+    pendingMoves.delete(element);
     element.style.position = "";
     element.style.margin = "";
     element.style.left = "";
@@ -215,6 +406,7 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
     element.style.zIndex = "";
     element.style.transform = "";
     delete element.dataset.floating;
+    card?.classList.remove("markdown-image-group-empty");
     if (placeholder && placeholder.parentNode) {
       placeholder.parentNode.insertBefore(element, placeholder);
       placeholder.remove();
@@ -231,11 +423,10 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
   };
 
   const apply = (x, y) => {
-    element.style.transform = `translate(${x}px, ${y}px)`;
-    document.dispatchEvent(new CustomEvent(PHOTO_MOVE_EVENT));
+    queueDragMove(element, x, y);
   };
 
-  // Move/up are bound on `window` (not the element) for the duration of a drag.
+  // Gesture tracking stays on `window` after the element moves to <body>.
   // Pointer capture can't be used here: popOut() reparents the element to
   // <body>, which implicitly releases capture — after which an element-bound
   // listener would only fire while the cursor is directly over the image, so a
@@ -250,6 +441,7 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
     if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
     if (!moved) {
       moved = true;
+      element.classList.add("dragging");
       element.style.cursor = "grabbing";
     }
     if (!popped) popOut();
@@ -262,19 +454,21 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
   const endDrag = () => {
     if (!dragging) return;
     dragging = false;
+    element.classList.remove("dragging");
     element.style.cursor = "grab";
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", endDrag);
-    window.removeEventListener("pointercancel", endDrag);
     if (!moved) return;
     // A real drag just ended: note the time so its click is swallowed, and if
     // the icon was dropped back over its card, dock it there.
     lastDragEndAt = performance.now();
+    // Hit testing on release must use the final pointer position, even when
+    // pointerup arrives before the queued animation frame.
+    if (pendingMoves.delete(element)) {
+      element.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+    }
     if (dockOnDrop && popped && withinCard()) dock();
   };
 
   const onPointerDown = (e) => {
-    if (e.button !== 0 || e.isPrimary === false) return;
     // Only a press that starts on the element begins a drag; passing the cursor
     // over the element while a button is held (a drag begun elsewhere) does not.
     dragging = true;
@@ -283,9 +477,6 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
     startY = e.clientY;
     baseX = offsetX;
     baseY = offsetY;
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", endDrag);
-    window.addEventListener("pointercancel", endDrag);
     // Note: no preventDefault here — a plain click should still work as a link
     // until the press turns into a real drag.
   };
@@ -300,24 +491,24 @@ export function makeFloatingDraggable(element, { dockOnDrop = true } = {}) {
     }
   };
 
-  element.style.touchAction = "none";
   element.style.cursor = "grab";
-  element.addEventListener("pointerdown", onPointerDown);
+  const resetGesture = bindImageDrag(element, {
+    start: onPointerDown, move: onPointerMove, end: endDrag,
+  });
   element.addEventListener("click", onClick);
-  element.addEventListener("dragstart", (event) => event.preventDefault());
 
   // On navigation, restore the default: if it was popped out (and possibly
   // orphaned when its card was removed), discard it — the about page renders a
   // fresh, docked icon when it mounts again. If still docked, just clear any
   // transform.
   registerDragReset(element, () => {
+    resetGesture();
+    pendingMoves.delete(element);
     dragging = false;
+    element.classList.remove("dragging");
     element.style.cursor = "grab";
-    window.removeEventListener("pointermove", onPointerMove);
-    window.removeEventListener("pointerup", endDrag);
-    window.removeEventListener("pointercancel", endDrag);
     if (popped) {
-      if (!dockOnDrop && card?.isConnected) {
+      if (element.classList.contains("blog-image") && card?.isConnected) {
         dock();
         moved = false;
         return;
@@ -406,6 +597,8 @@ const flow = {
   scanFrame: 0,
   imageGroups: [],
   imageObserver: null,
+  obstacleRects: null,
+  layingOut: false,
   markdownBodies: new WeakMap(),
 };
 
@@ -421,7 +614,9 @@ function refreshObstacles() {
   document.querySelectorAll('.cert-icon[data-floating="1"]').forEach((e) => {
     els.push(e);
   });
-  document.querySelectorAll('.markdown-body .blog-image, .blog-image[data-floating="1"]').forEach((e) => {
+  // Docked figures already occupy their own row in normal document flow.
+  // Only detached figures can overlap prose and need exclusion geometry.
+  document.querySelectorAll('.blog-image[data-floating="1"]').forEach((e) => {
     els.push(e);
   });
   flow.obstacleEls = els;
@@ -432,16 +627,33 @@ function refreshObstacles() {
 // When `excludeBelts` is set, floating certificate icons are ignored — used by
 // the certificate grid itself so it doesn't reflow around its own popped-out
 // icon (which would drag that icon's card around).
-function obstaclesRelTo(el, excludeBelts) {
-  const cr = el.getBoundingClientRect();
+function documentRect(el) {
+  const rect = el.getBoundingClientRect();
+  const scroll = pageScrollPosition();
+  return {
+    left: rect.left + scroll.x,
+    right: rect.right + scroll.x,
+    top: rect.top + scroll.y,
+    bottom: rect.bottom + scroll.y,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function obstaclesRelTo(el, excludeBelts, minimumHeight = 0) {
+  const cr = documentRect(el);
   const circles = [];
   for (let i = 0; i < flow.obstacleEls.length; i++) {
     const p = flow.obstacleEls[i];
     if (!p || !p.isConnected) continue;
     if (excludeBelts && p.classList.contains("cert-icon")) continue;
     if (p.contains(el)) continue;
-    const pr = p.getBoundingClientRect();
+    const pr = flow.obstacleRects?.get(p) || documentRect(p);
     if (pr.width <= 0 || pr.height <= 0) continue;
+    // Obstacles above or outside the column cannot affect any of its lines.
+    if (pr.bottom + PHOTO_MARGIN <= cr.top ||
+        pr.right + PHOTO_MARGIN <= cr.left ||
+        pr.left - PHOTO_MARGIN >= cr.right) continue;
     if (p.classList.contains("blog-image")) {
       circles.push({
         left: pr.left - cr.left,
@@ -457,7 +669,12 @@ function obstaclesRelTo(el, excludeBelts) {
       radius: Math.min(pr.width, pr.height) / 2,
     });
   }
-  return circles;
+  // A shape below the block cannot affect its natural layout. Once a shape
+  // intersects, retain those farther down too: wrapping can extend the block
+  // into them. This also makes the cache key stable for distant text blocks.
+  return circles.some((c) => (c.top !== undefined
+    ? c.top - PHOTO_MARGIN : c.cy - c.radius - PHOTO_MARGIN) < Math.max(cr.height, minimumHeight))
+    ? circles : [];
 }
 
 // A cache-key fragment summarizing every obstacle's rounded geometry, so
@@ -545,13 +762,6 @@ function buildSegmentsFn(colWidth, circles, bandHeight, minGap) {
   };
 }
 
-// A full-width single segment, used as the no-overlap fallback signature too.
-function isFullWidthRow(segs, colWidth) {
-  return (
-    segs.length === 1 && segs[0].x === 0 && segs[0].w >= colWidth - 0.5
-  );
-}
-
 // An element qualifies for flowing if it holds non-empty text and isn't a
 // container of other elements or an interactive control. We require it to have
 // no child *elements* (pure text) so we never clobber nested links/markup.
@@ -628,6 +838,7 @@ function createInstance(el) {
   const pool = [];
   let poolLineHeight = lineHeight;
   let lastKey = "";
+  let lastWidth = 0;
 
   const acquireLine = (i) => {
     let node = pool[i];
@@ -651,9 +862,11 @@ function createInstance(el) {
     // (profile photo, draggable belt) is modeled as the circle inscribed in its
     // box; text is excluded from the circular regions (plus a uniform margin
     // measured from the curve), not the square boxes, so lines tuck into corners.
-    const circles = obstaclesRelTo(el);
+    // A new width/font can grow the block into obstacles below its old bounds.
+    const circles = obstaclesRelTo(el, false, !lastKey || lastWidth !== colWidth ? Infinity : 0);
 
     const key = colWidth + "|" + obstaclesKey(circles) + "|" + lineHeight;
+    if (key === lastKey) return null;
 
     // A usable side-gap must fit the widest whole word; otherwise pretext would
     // have to break that word mid-grapheme to fill the gap. We skip gaps
@@ -701,12 +914,13 @@ function createInstance(el) {
       if (lines[i].y > maxLineY) maxLineY = lines[i].y;
     }
     const totalHeight = maxLineY + lineHeight + padBottom;
-    return { lines, totalHeight, key };
+    return { lines, totalHeight, key, width: colWidth };
   };
 
   const render = (layout) => {
     if (layout.key === lastKey) return;
     lastKey = layout.key;
+    lastWidth = layout.width;
 
     const { lines, totalHeight } = layout;
     el.style.height = `${totalHeight}px`;
@@ -790,6 +1004,7 @@ function createChipInstance(container) {
   const widestChip = Math.max(...sizes.map((s) => s.w), 1);
 
   let lastKey = "";
+  let lastWidth = 0;
 
   const relayout = () => {
     const colWidth = container.clientWidth;
@@ -801,11 +1016,13 @@ function createChipInstance(container) {
     const circles = obstaclesRelTo(
       container,
       container.classList.contains("cert-cards"),
+      !lastKey || lastWidth !== colWidth ? Infinity : 0,
     );
     const key =
       colWidth + "|" + obstaclesKey(circles) + "|" + Math.round(rowHeight);
     if (key === lastKey) return;
     lastKey = key;
+    lastWidth = colWidth;
 
     // A usable segment must fit at least the widest chip, else chips can't be
     // placed there without overflowing — skip such slivers.
@@ -950,9 +1167,8 @@ function prepareMarkdown(root) {
       image.addEventListener("error", onSize);
     }
 
-    // Each centered image occupies its own row before the following prose.
-    // Keep its group and drag placeholder so moving it does not collapse that
-    // row; Pretext still routes text around the image wherever it is dropped.
+    // Images start on their own row. Their group collapses to the remaining
+    // prose when an image detaches; Pretext wraps around its new position.
     body.querySelectorAll(".blog-image").forEach((figure) => {
       const group = document.createElement("div");
       group.className = "markdown-image-group";
@@ -967,7 +1183,7 @@ function prepareMarkdown(root) {
       }
       flow.imageGroups.push({ group, figure });
       flow.imageObserver?.observe(figure);
-      makeFloatingDraggable(figure, { dockOnDrop: false });
+      makeFloatingDraggable(figure);
     });
     body.dataset.markdownInit = "1";
     flow.markdownBodies.set(body, body.firstElementChild);
@@ -1069,9 +1285,23 @@ function createMarkdownInstance(el) {
   const pool = [];
   let chunks = [];
   let lineHeight;
+  let box;
+  let sourceLength;
   let lastKey = "";
+  let lastWidth = 0;
+  const renderedLines = new WeakMap();
 
   function refreshTypography() {
+    const cs = getComputedStyle(el);
+    box = {
+      left: parseFloat(cs.paddingLeft) || 0,
+      right: parseFloat(cs.paddingRight) || 0,
+      top: parseFloat(cs.paddingTop) || 0,
+      bottom: parseFloat(cs.paddingBottom) || 0,
+      borderLeft: el.clientLeft,
+      borderTop: el.clientTop,
+    };
+    sourceLength = source.textContent.length;
     lineHeight = resolveTypography(el).lineHeight;
     if (isCode) {
       const style = resolveTypography(source.querySelector("code") || el);
@@ -1242,17 +1472,14 @@ function createMarkdownInstance(el) {
   }
 
   function relayout() {
-    const cs = getComputedStyle(el);
-    const left = parseFloat(cs.paddingLeft) || 0;
-    const right = parseFloat(cs.paddingRight) || 0;
-    const top = parseFloat(cs.paddingTop) || 0;
-    const bottom = parseFloat(cs.paddingBottom) || 0;
+    const { left, right, top, bottom, borderLeft, borderTop } = box;
     const width = el.clientWidth - left - right;
     if (width <= 0) return;
-    const obstacles = obstaclesRelTo(el).map((obstacle) => obstacle.left !== undefined
-      ? { left: obstacle.left - left - el.clientLeft, right: obstacle.right - left - el.clientLeft,
-          top: obstacle.top - top - el.clientTop, bottom: obstacle.bottom - top - el.clientTop }
-      : { cx: obstacle.cx - left - el.clientLeft, cy: obstacle.cy - top - el.clientTop,
+    const obstacles = obstaclesRelTo(el, false, !lastKey || lastWidth !== width ? Infinity : 0)
+      .map((obstacle) => obstacle.left !== undefined
+      ? { left: obstacle.left - left - borderLeft, right: obstacle.right - left - borderLeft,
+          top: obstacle.top - top - borderTop, bottom: obstacle.bottom - top - borderTop }
+      : { cx: obstacle.cx - left - borderLeft, cy: obstacle.cy - top - borderTop,
           radius: obstacle.radius });
     const key = width + "|" + obstaclesKey(obstacles) + "|" + lineHeight;
     if (key === lastKey) return;
@@ -1263,7 +1490,7 @@ function createMarkdownInstance(el) {
       o.bottom !== undefined ? o.bottom + PHOTO_MARGIN : o.cy + o.radius + PHOTO_MARGIN));
     // A source-based bound detects stalled layout without silently truncating
     // long posts; blocked bands can only persist through the finite obstacles.
-    const maxRows = Math.ceil(obstacleBottom / lineHeight) + source.textContent.length + chunks.length + 1;
+    const maxRows = Math.ceil(obstacleBottom / lineHeight) + sourceLength + chunks.length + 1;
     let rows = 0;
     for (const chunk of chunks) {
       if (chunk.empty) {
@@ -1280,10 +1507,7 @@ function createMarkdownInstance(el) {
             done = true;
             break;
           }
-          const content = isCode
-            ? api.materializeLineRange(chunk.prepared, range)
-            : api.materializeRichInlineLineRange(chunk.prepared, range);
-          lines.push({ x: segment.x + left, y: y + top, content, chunk });
+          lines.push({ x: segment.x + left, y: y + top, range, chunk });
           cursor = range.end;
           if (!nextLine(chunk, cursor, Infinity)) {
             done = true;
@@ -1304,23 +1528,40 @@ function createMarkdownInstance(el) {
         pool.push(node);
         el.appendChild(node);
       }
-      node.style.display = "";
-      node.style.top = line.y + "px";
-      node.style.left = line.x + "px";
-      node.style.lineHeight = lineHeight + "px";
-      if (isCode) {
-        node.style.font = line.chunk.font;
-        node.style.lineHeight = lineHeight + "px";
-        renderCodeFragments(line, node);
-      } else {
-        renderFragments(line, node);
+      const top = line.y + "px";
+      const left = line.x + "px";
+      const height = lineHeight + "px";
+      if (node.style.display === "none") node.style.display = "";
+      if (node.style.top !== top) node.style.top = top;
+      if (node.style.left !== left) node.style.left = left;
+      if (node.style.lineHeight !== height) node.style.lineHeight = height;
+      // Moving a line does not change its markup. Rebuild fragments only when
+      // its prepared text or its actual line-break range changes.
+      const signature = JSON.stringify(line.range.fragments || [line.range.start, line.range.end]);
+      const previous = renderedLines.get(node);
+      if (!previous || previous.chunk !== line.chunk || previous.signature !== signature) {
+        line.content = isCode
+          ? api.materializeLineRange(line.chunk.prepared, line.range)
+          : api.materializeRichInlineLineRange(line.chunk.prepared, line.range);
+        if (isCode) {
+          node.style.font = line.chunk.font;
+          node.style.lineHeight = height;
+          renderCodeFragments(line, node);
+        } else {
+          renderFragments(line, node);
+        }
+        renderedLines.set(node, { chunk: line.chunk, signature });
       }
     });
-    for (let i = lines.length; i < pool.length; i++) pool[i].style.display = "none";
-    el.style.height = y + top + bottom + el.clientTop * 2 + "px";
-    el.classList.add("markdown-flow-ready");
-    mirrorFocus();
+    for (let i = lines.length; i < pool.length; i++) {
+      if (pool[i].style.display !== "none") pool[i].style.display = "none";
+    }
+    const height = y + top + bottom + borderTop * 2 + "px";
+    if (el.style.height !== height) el.style.height = height;
+    if (!el.classList.contains("markdown-flow-ready")) el.classList.add("markdown-flow-ready");
+    if (focusedLink() !== -1) mirrorFocus();
     lastKey = key;
+    lastWidth = width;
   }
 
   return { el, isConnected: () => el.isConnected && source.parentNode === el, relayout, refreshTypography };
@@ -1328,20 +1569,30 @@ function createMarkdownInstance(el) {
 
 // Reflow every instance, coalesced to one animation frame.
 function scheduleAll() {
-  if (flow.frame) return;
+  if (flow.frame || flow.layingOut) return;
   flow.frame = requestAnimationFrame(() => {
     flow.frame = 0;
-    flow.imageGroups = flow.imageGroups.filter(({ group, figure }) => {
-      if (!group.isConnected) {
-        flow.imageObserver?.unobserve(figure);
-        return false;
+    flow.layingOut = true;
+    try {
+      const moved = pendingMoves.size > 0;
+      for (const [element, { x, y }] of pendingMoves) {
+        if (element.isConnected) element.style.transform = `translate(${x}px, ${y}px)`;
       }
-      const height = Math.ceil(figure.getBoundingClientRect().height + PHOTO_MARGIN) + "px";
-      if (group.style.minHeight !== height) group.style.minHeight = height;
-      return true;
-    });
-    for (let i = 0; i < flow.instances.length; i++) {
-      flow.instances[i].relayout();
+      pendingMoves.clear();
+      if (moved) document.dispatchEvent(new CustomEvent(PHOTO_MOVE_EVENT));
+      // Image sizes are maintained by ResizeObserver, not re-read on every drag.
+      flow.obstacleRects = new Map();
+      for (const obstacle of flow.obstacleEls) {
+        // Document coordinates stay valid if scroll anchoring changes scrollY
+        // while earlier blocks reflow (especially on a viewport resize).
+        if (obstacle.isConnected) flow.obstacleRects.set(obstacle, documentRect(obstacle));
+      }
+      for (const instance of flow.instances) {
+        if (instance.isConnected()) instance.relayout();
+      }
+    } finally {
+      flow.obstacleRects = null;
+      flow.layingOut = false;
     }
   });
 }
@@ -1350,6 +1601,11 @@ function scheduleAll() {
 // have left the DOM (e.g. after a client-side route change). Idempotent.
 function scan(root) {
   let added = 0;
+  flow.imageGroups = flow.imageGroups.filter(({ group, figure }) => {
+    if (group.isConnected) return true;
+    flow.imageObserver?.unobserve(figure);
+    return false;
+  });
   prepareMarkdown(root);
   root.querySelectorAll(".markdown-body p, .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6, .markdown-body .markdown-inline, .markdown-body pre").forEach((el) => {
     if (el.dataset.flowInit === "1" || el.closest(".flow-source, .flow-line")) return;
@@ -1423,11 +1679,16 @@ export function setupAllTextFlow() {
         });
       });
 
-      // Re-scan when the router swaps page content in/out. Our own line-node
-      // writes also trigger this, but scan is idempotent (already-init elements
-      // and generated .flow-line divs are ignored), so it settles immediately.
+      // Discover route/async content changes without scanning the whole article
+      // again for our own visual line and copy-button updates.
       const mo = new MutationObserver((muts) => {
         for (let i = 0; i < muts.length; i++) {
+          const mutation = muts[i];
+          if (mutation.target.nodeType === Node.ELEMENT_NODE &&
+              mutation.target.closest(".flow-line, .code-copy-button, .code-copy-status")) continue;
+          const changed = [...mutation.addedNodes, ...mutation.removedNodes];
+          if (changed.length && changed.every((node) => node.nodeType === Node.ELEMENT_NODE &&
+              node.matches(".flow-line, .code-copy-button, .code-copy-status"))) continue;
           if (muts[i].addedNodes.length || muts[i].removedNodes.length) {
             scheduleScan(root);
             break;

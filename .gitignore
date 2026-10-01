@@ -1,6 +1,9 @@
 # Rust build output
 /target
 
+# Private test configuration
+/compose.test.yaml
+
 # SQLite database files (runtime data — should never be committed)
 *.db
 *.db-shm

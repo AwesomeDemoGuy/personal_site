@@ -422,7 +422,7 @@ a.cert-card:hover {
   }
 
   // Server-rendered figures have a readable native layout before hydration.
-  .blog-image, .blog-image-placeholder {
+  .blog-image {
     display: block;
     width: min(100%, var(--blog-image-width, min(42%, 20rem)));
     margin: 0 auto 1.2rem;
@@ -437,6 +437,10 @@ a.cert-card:hover {
     position: relative;
     display: flow-root;
     margin-bottom: 1.2rem;
+
+    &.markdown-image-group-empty {
+      margin-bottom: 0;
+    }
   }
 
   // The canonical HTML remains in the accessibility tree with one tab stop per
@@ -471,6 +475,22 @@ a.cert-card:hover {
   max-width: 100%;
   height: auto;
   border-radius: 6px;
+}
+
+.blog-image.dragging, .cert-icon.dragging {
+  will-change: transform;
+}
+
+// Avoid the native image callout interrupting a deliberate touch hold.
+.profile-photo, .cert-icon, .blog-image, .blog-image img {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.touch-drag-ready {
+  outline: 2px solid $accent;
+  outline-offset: 3px;
 }
 
 // ---- Footer ------------------------------------------------------------
